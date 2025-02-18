@@ -1,14 +1,20 @@
 // L298N Module 1 (Motors A & B)
-#define IN1_1 12  // Motor A direction
-#define IN2_1 14  // Motor A direction
-#define IN3_1 27  // Motor B direction
-#define IN4_1 26  // Motor B direction
+#define IN1_1 13  // Motor A direction
+#define IN2_1 12  // Motor A direction
+#define IN3_1 14  // Motor B direction
+#define IN4_1 27  // Motor B direction
 
 // L298N Module 2 (Motors C & D)
 #define IN1_2 32  // Motor C direction
 #define IN2_2 33  // Motor C direction
 #define IN3_2 25  // Motor D direction
-#define IN4_2 13  // Motor D direction
+#define IN4_2 26  // Motor D direction
+
+// // L298N Module 2 (Motors C & D)
+// #define IN1_2 26  // Motor C direction
+// #define IN2_2 32  // Motor C direction
+// #define IN3_2 33  // Motor D direction
+// #define IN4_2 25  // Motor D direction
 
 // Single Enable Pin (Connected to ENA1, ENB1, ENA2, ENB2)
 #define ENABLE_PIN 5   // PWM control for all motors

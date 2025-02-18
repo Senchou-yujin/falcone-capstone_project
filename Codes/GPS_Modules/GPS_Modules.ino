@@ -1,29 +1,35 @@
-#include <SoftwareSerial.h>
 #include <TinyGPS++.h>
-SoftwareSerial gpsSerial(8,9);
+#include <SoftwareSerial.h>
+
+int RXPin = 16;
+int TXPin = 17;
+int GPSBaud = 9600;
+
 TinyGPSPlus gps;
-float lattitude,longitude;
+SoftwareSerial gpsSerial(RXPin, TXPin);
 
 void setup() {
+  Serial.begin(9600);
+  gpsSerial.begin(GPSBaud);
+}
 
- gpsSerial.begin(9600);
- Serial.begin(9600);
-  
-  }
-
-void loop()
-{
-  while (gpsSerial.available())
-  {
-    int data = gpsSerial.read();
-    if (gps.encode(data))
-    {
-      lattitude = (gps.location.lat());
-      longitude = (gps.location.lng());
-      Serial.print ("lattitude: ");
-      Serial.println (lattitude);
-      Serial.print ("longitude: ");
-      Serial.println (longitude);
+void loop() {
+  while (gpsSerial.available() > 0) {
+    if (gps.encode(gpsSerial.read())) {
+      sendJSON();
     }
   }
+}
+
+void sendJSON() {
+  if (gps.location.isValid()) {
+    Serial.print("{\"latitude\": ");
+    Serial.print(gps.location.lat(), 6);
+    Serial.print(", \"longitude\": ");
+    Serial.print(gps.location.lng(), 6);
+    Serial.println("}");
+  } else {
+    Serial.println("{\"error\": \"GPS signal not available\"}");
+  }
+  delay(1000);
 }
