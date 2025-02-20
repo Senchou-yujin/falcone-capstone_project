@@ -1,3 +1,5 @@
+#include <Arduino.h>
+
 // L298N Module 1 (Motors A & B)
 #define IN1_1 13  // Motor A direction
 #define IN2_1 12  // Motor A direction
