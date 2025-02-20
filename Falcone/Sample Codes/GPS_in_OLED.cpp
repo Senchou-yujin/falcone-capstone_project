@@ -17,9 +17,9 @@ void setup() {
     Serial.begin(115200);
     gpsSerial.begin(9600, SERIAL_8N1, 16, 17); // RX=16, TX=17
     
-    if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {  // Use 0x3C as the common I2C address for SH1106
-        Serial.println(F("SSD1306 allocation failed"));
-        for (;;);
+    if (!display.begin(SCREEN_ADDRESS, OLED_RESET)) {
+    Serial.println(F("SH1106 allocation failed"));
+    for (;;);
     }
     
     display.clearDisplay();
