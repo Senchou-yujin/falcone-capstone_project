@@ -35,30 +35,32 @@
         let marker = L.marker([0, 0]).addTo(map);
 
         function fetchGPSData() {
-            fetch("https://api.thingspeak.com/channels/2847164/feeds.json?results=1")
-                .then(response => response.json())
-                .then(data => {
-                    if (data.feeds.length > 0) {
-                        let latestFeed = data.feeds[0];
+    const url = `https://api.thingspeak.com/channels/2847164/feeds.json?results=1&t=${new Date().getTime()}`;
+    
+                fetch(url)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.feeds.length > 0) {
+                            let latestFeed = data.feeds[0];
 
-                        let latitude = parseFloat(latestFeed.field1);
-                        let longitude = parseFloat(latestFeed.field2);
+                            let latitude = parseFloat(latestFeed.field1);
+                            let longitude = parseFloat(latestFeed.field2);
 
-                        if (!isNaN(latitude) && !isNaN(longitude)) {
-                            let newLocation = [latitude, longitude];
-                            marker.setLatLng(newLocation);
-                            map.setView(newLocation, 15);
+                            if (!isNaN(latitude) && !isNaN(longitude)) {
+                                let newLocation = [latitude, longitude];
+                                marker.setLatLng(newLocation);
+                                map.setView(newLocation, 15);
 
-                            console.log("Updated GPS Location: ", latitude, longitude);
+                                console.log("Updated GPS Location: ", latitude, longitude);
+                            } else {
+                                console.error("Invalid GPS Data:", latestFeed);
+                            }
                         } else {
-                            console.error("Invalid GPS Data:", latestFeed);
+                            console.error("No data received from ThingSpeak.");
                         }
-                    } else {
-                        console.error("No data received from ThingSpeak.");
-                    }
-                })
-                .catch(error => console.error("Error fetching GPS data:", error));
-        }
+                    })
+                    .catch(error => console.error("Error fetching GPS data:", error));
+            }
 
         // Fetch GPS data every 15 seconds
         setInterval(fetchGPSData, 15000);
