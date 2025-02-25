@@ -35,7 +35,7 @@
         let marker = L.marker([0, 0]).addTo(map);
 
         function fetchGPSData() {
-            fetch("https://api.thingspeak.com/channels/2848738/feeds.json?results=1")
+            fetch("https://api.thingspeak.com/channels/2847164/feeds.json?results=1")
                 .then(response => response.json())
                 .then(data => {
                     if (data.feeds.length > 0) {

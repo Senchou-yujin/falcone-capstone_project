@@ -9,7 +9,7 @@ HardwareSerial gpsSerial(1);
 const char* ssid = "Senchou";
 const char* password = "@5qifyddn";
 const char* serverName = "http://api.thingspeak.com/update";
-String apiKey = "BV6E00JMUEHZO8HX";
+String apiKey = "76OSCBNZLVLSBLGO";
 
 void setup() {
     Serial.begin(115200);
