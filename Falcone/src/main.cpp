@@ -14,7 +14,7 @@ Adafruit_MPU6050 mpu;
 const char* ssid = "Senchou";
 const char* password = "@5qifyddn";
 const char* serverName = "http://api.thingspeak.com/update";
-String apiKey = "76OSCBNZLVLSBLGO";
+String apiKey = "0Y7VQODYQGD4N1F9";
 
 void setup() {
     Serial.begin(115200);
@@ -85,9 +85,9 @@ void loop() {
             http.addHeader("Content-Type", "application/x-www-form-urlencoded");
 
             String httpRequestData = "api_key=" + apiKey + 
-                                     "&field1=" + String(latitude, 6) + 
-                                     "&field2=" + String(longitude, 6) + 
-                                     "&field3=" + String(   );
+                                     "&field4=" + String(latitude, 6) + 
+                                     "&field5=" + String(longitude, 6) + 
+                                     "&field6=" + String(statusValue);
                                      
             int httpResponseCode = http.POST(httpRequestData);
             
