@@ -85,9 +85,9 @@ void loop() {
             http.addHeader("Content-Type", "application/x-www-form-urlencoded");
 
             String httpRequestData = "api_key=" + apiKey + 
-                                     "&field4=" + String(latitude, 6) + 
-                                     "&field5=" + String(longitude, 6) + 
-                                     "&field6=" + String(statusValue);
+                                     "&field1=" + String(latitude, 6) + 
+                                     "&field2=" + String(longitude, 6) + 
+                                     "&field3=" + String(statusValue);
                                      
             int httpResponseCode = http.POST(httpRequestData);
             
