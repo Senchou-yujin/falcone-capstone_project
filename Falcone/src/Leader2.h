@@ -38,6 +38,90 @@ Device devices[3] = {
   { "Self", 0, 0, 0, 0, 0, 0 }
 };
 
+void stopAllMotors() {
+  for(int i=0; i<4; i++) setMotorSpeed(i, 0);
+}
+
+void setupMotors() {
+  pinMode(ENA_1, OUTPUT); pinMode(IN1_1, OUTPUT); pinMode(IN2_1, OUTPUT);
+  pinMode(ENB_1, OUTPUT); pinMode(IN3_1, OUTPUT); pinMode(IN4_1, OUTPUT);
+  pinMode(ENA_2, OUTPUT); pinMode(IN1_2, OUTPUT); pinMode(IN2_2, OUTPUT); 
+  pinMode(ENB_2, OUTPUT); pinMode(IN3_2, OUTPUT); pinMode(IN4_2, OUTPUT);
+  stopAllMotors();
+}
+
+// Remove all speed-related variables and functions
+// Replace with simple directional control
+
+void setMotorDirection(uint8_t motor, bool forward) {
+  switch(motor) {
+    case 0: // Motor A
+      digitalWrite(IN1_1, forward); 
+      digitalWrite(IN2_1, !forward);
+      break;
+    case 1: // Motor B
+      digitalWrite(IN3_1, forward);
+      digitalWrite(IN4_1, !forward);
+      break;
+    case 2: // Motor C
+      digitalWrite(IN1_2, forward);
+      digitalWrite(IN2_2, !forward);
+      break;
+    case 3: // Motor D
+      digitalWrite(IN3_2, forward);
+      digitalWrite(IN4_2, !forward);
+      break;
+  }
+}
+
+void stopAllMotors() {
+  for(int i=0; i<4; i++) {
+    digitalWrite(IN1_1 + i, LOW); // Turn off all direction pins
+  }
+}
+
+void executeFormationMovement() {
+  if (isAligning) {
+    // Alignment uses simple left/right correction
+    float yawError = calculateYawError();
+    if(yawError > 5) {
+      // Turn right
+      setMotorDirection(0, false); // Left back
+      setMotorDirection(1, true);  // Right forward
+    } 
+    else if(yawError < -5) {
+      // Turn left
+      setMotorDirection(0, true);  // Left forward
+      setMotorDirection(1, false); // Right back
+    }
+    return;
+  }
+
+  switch(currentMovement) {
+    case MOVE_FORWARD:
+      for(int i=0; i<4; i++) setMotorDirection(i, true);
+      break;
+    case MOVE_BACKWARD:
+      for(int i=0; i<4; i++) setMotorDirection(i, false);
+      break;
+    case ROTATE_LEFT:
+      setMotorDirection(0, true);   // Left forward
+      setMotorDirection(1, false);  // Right backward
+      setMotorDirection(2, true);   // Left forward
+      setMotorDirection(3, false);  // Right backward
+      break;
+    case ROTATE_RIGHT:
+      setMotorDirection(0, false);  // Left backward
+      setMotorDirection(1, true);   // Right forward
+      setMotorDirection(2, false);  // Left backward
+      setMotorDirection(3, true);   // Right forward
+      break;
+    case HOLD_POSITION:
+      stopAllMotors();
+      break;
+  }
+}
+
 void updateAndBroadcastPositions() {
   String json = "{\"devices\":[";
   for (int i = 0; i < 3; i++) {
@@ -56,41 +140,36 @@ void updateAndBroadcastPositions() {
   Serial.println("Broadcast: " + json);
 }
 
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
-  if (type == WStype_TEXT) {
-    String data = (char*)payload;
-    Serial.println("Received: " + data);
+void handleStructuredData(const String& data) {
+  // Parse the data string: "ID,lat,lng,status,temp,battery"
+  int commas[5];
+  int index = 0;
+  for (int i = 0; i < data.length() && index < 5; i++) {
+    if (data.charAt(i) == ',') {
+      commas[index++] = i;
+    }
+  }
 
-    // Parse the data string: "ID,lat,lng,status,temp,battery"
-    int commas[5];
-    int index = 0;
-    for (int i = 0; i < data.length() && index < 5; i++) {
-      if (data.charAt(i) == ',') {
-        commas[index++] = i;
+  if (index == 5) { // We found all 5 commas
+    String id = data.substring(0, commas[0]);
+    float lat = data.substring(commas[0] + 1, commas[1]).toFloat();
+    float lng = data.substring(commas[1] + 1, commas[2]).toFloat();
+    int status = data.substring(commas[2] + 1, commas[3]).toInt();
+    float temp = data.substring(commas[3] + 1, commas[4]).toFloat();
+    int battery = data.substring(commas[4] + 1).toInt();
+
+    for (int i = 0; i < 2; i++) { // Only update Falcone1/2 (skip Self)
+      if (devices[i].id == id) {
+        devices[i].lat = lat;
+        devices[i].lng = lng;
+        devices[i].status = status;
+        devices[i].temperature = temp;
+        devices[i].battery = battery;
+        devices[i].lastUpdate = millis();
+        break;
       }
     }
-
-    if (index == 5) { // We found all 5 commas
-      String id = data.substring(0, commas[0]);
-      float lat = data.substring(commas[0] + 1, commas[1]).toFloat();
-      float lng = data.substring(commas[1] + 1, commas[2]).toFloat();
-      int status = data.substring(commas[2] + 1, commas[3]).toInt();
-      float temp = data.substring(commas[3] + 1, commas[4]).toFloat();
-      int battery = data.substring(commas[4] + 1).toInt();
-
-      for (int i = 0; i < 2; i++) { // Only update Falcone1/2 (skip Self)
-        if (devices[i].id == id) {
-          devices[i].lat = lat;
-          devices[i].lng = lng;
-          devices[i].status = status;
-          devices[i].temperature = temp;
-          devices[i].battery = battery;
-          devices[i].lastUpdate = millis();
-          break;
-        }
-      }
-      updateAndBroadcastPositions();
-    }
+    updateAndBroadcastPositions();
   }
 }
 
@@ -129,6 +208,7 @@ void setup() {
   Serial.begin(115200);
   GPS.begin(9600, SERIAL_8N1, 16, 17);
   analogReadResolution(12);
+  setupMotors(); // Initialize motor control
 
   // Initialize MPU6050
   if (!mpu.begin()) {
@@ -163,6 +243,7 @@ void setup() {
 void loop() {
   server.handleClient();
   webSocket.loop();
+  executeFormationMovement();
 
   // Read and process GPS data
   while (GPS.available() > 0) {

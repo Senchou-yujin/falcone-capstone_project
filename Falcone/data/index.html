@@ -52,21 +52,62 @@
             background: #f5f5f5;
             border-top: 1px solid #ddd;
         }
+
+        #toggle-map {
+            flex: 1 1 100%; /* Make Satellite View button take the full row */
+            text-align: center;
+        }
+
         .control-btn {
             padding: 10px 12px;
             background: white;
             border: 1px solid #ccc;
             border-radius: 4px;
             cursor: pointer;
-            transition: all 0.2s;
-            flex: 1 1 30%;
+            transition: all 0.3s ease;
+            flex: 1 1 30%; /* Default button size */
             text-align: center;
             font-size: 14px;
             min-width: 0;
         }
+
+        /* Hover effect for all buttons */
         .control-btn:hover {
             background: #e9e9e9;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Add shadow on hover */
         }
+
+        /* Active state for all buttons */
+        .control-btn:active {
+            background: #dcdcdc; /* Slightly darker background when clicked */
+            transform: scale(0.98); /* Slightly shrink the button on click */
+        }
+
+        /* Specific styles for the Start Alignment button */
+        button[onclick="startAlignment()"] {
+            flex: 1 1 100%; /* Full width */
+            text-align: center;
+            background: #4CAF50; /* Green background */
+            color: white; /* White text */
+            border: none; /* Remove border */
+            border-radius: 4px; /* Rounded corners */
+            padding: 12px 16px; /* Padding for better spacing */
+            font-size: 16px; /* Larger font size */
+            font-weight: bold; /* Bold text */
+            cursor: pointer; /* Pointer cursor on hover */
+            transition: all 0.3s ease; /* Smooth transition for hover effects */
+        }
+
+        button[onclick="startAlignment()"]:hover {
+            background: #45a049; /* Darker green on hover */
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Add shadow on hover */
+        }
+
+        button[onclick="startAlignment()"]:active {
+            background: #3e8e41; /* Even darker green when clicked */
+            transform: scale(0.98); /* Slightly shrink the button on click */
+        }
+
         #center-self { border-left: 4px solid green; }
         #center-falcone1 { border-left: 4px solid red; }
         #center-falcone2 { border-left: 4px solid blue; }
@@ -139,6 +180,150 @@
                 justify-content: space-between;
             }
         }
+
+        #alignment-screen {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #f0f0f0;
+            z-index: 1000;
+            padding: 20px;
+            text-align: center;
+        }
+
+        #alignment-screen h2 {
+            margin-bottom: 20px;
+        }
+
+        #alignment-screen .control-btn {
+            margin: 10px;
+            padding: 12px 20px;
+            font-size: 16px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        #alignment-screen .control-btn:hover {
+            background: #45a049;
+        }
+
+        #alignment-screen .control-btn:active {
+            background: #3e8e41;
+            transform: scale(0.98);
+        }
+
+        #alignment-screen .control-btn:last-child {
+            background: #f44336; /* Red for Exit button */
+        }
+
+        #alignment-screen .control-btn:last-child:hover {
+            background: #d32f2f;
+        }
+
+        .cone-controls {
+            margin-bottom: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            background: #fff;
+            text-align: center;
+        }
+
+        .cone-controls h3 {
+            margin-bottom: 10px;
+            font-size: 18px;
+            color: #333;
+        }
+
+        .controls button {
+            margin: 5px;
+            padding: 10px 15px;
+            font-size: 14px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .controls button:hover {
+            background: #45a049;
+        }
+
+        .controls button:active {
+            background: #3e8e41;
+            transform: scale(0.98);
+        }
+
+        .control-panel {
+        margin-top: 10px;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        background: #f9f9f9;
+        text-align: center;
+    }
+
+        .control-panel button {
+            margin: 5px;
+            padding: 10px 15px;
+            font-size: 14px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .control-panel button:hover {
+            background: #45a049;
+        }
+
+        .control-panel button:active {
+            background: #3e8e41;
+            transform: scale(0.98);
+        }
+
+        .control-panel .align-btn {
+            background: #2196F3;
+        }
+
+        .control-panel .align-btn:hover {
+            background: #1976D2;
+        }
+
+        .control-panel .stop-btn {
+            background: #f44336;
+        }
+
+        .control-panel .stop-btn:hover {
+            background: #d32f2f;
+        }
+
+        .speed-control {
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .speed-control span {
+            margin: 0 5px;
+            font-size: 14px;
+        }
+
+        .speed-control input[type="range"] {
+            margin: 0 10px;
+        }
     </style>
 </head>
 <body>
@@ -149,15 +334,74 @@
             <div id="connection-status" class="disconnected">Disconnected</div>
         </div>
         <div id="control-panel">
-            <button id="center-self" class="control-btn">Center Self</button>
-            <button id="center-falcone1" class="control-btn">Center Falcone1</button>
-            <button id="center-falcone2" class="control-btn">Center Falcone2</button>
+            <button id="center-self" class="control-btn">Falcone1</button>
+            <button id="center-falcone1" class="control-btn">Falcone2</button>
+            <button id="center-falcone2" class="control-btn">Falcone3</button>
             <button id="toggle-map" class="control-btn">Satellite View</button>
+            <button onclick="startAlignment()" class="control-btn" style="flex: 1 1 100%;">Start Alignment</button>
+        </div>
+        <div id="log-container" style="margin-top: 10px; max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; background: #f9f9f9; font-size: 14px;">
+            <strong>Status Log:</strong>
+            <ul id="log-list" style="list-style: none; padding: 0; margin: 0;"></ul>
         </div>
     </div>
+    <div id="alignment-screen" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #f0f0f0; z-index: 1000; padding: 20px; text-align: center;">
+        <h2>Manual Control</h2>
+        <p>Use the controls below to manually control each cone.</p>
 
+        <div class="cone-controls">
+            <h3>Falcone1</h3>
+            <div class="control-panel">
+                <!-- Movement Controls -->
+                <button onclick="sendCommand('Falcone1', 'MOVE_FORWARD')">Forward</button>
+                <button onclick="sendCommand('Falcone1', 'MOVE_BACKWARD')">Backward</button>
+                <button onclick="sendCommand('Falcone1', 'ROTATE_LEFT')">Rotate Left</button>
+                <button onclick="sendCommand('Falcone1', 'ROTATE_RIGHT')">Rotate Right</button>
+        
+                <!-- Emergency Stop -->
+                <button onclick="sendCommand('Falcone1', 'STOP')" class="stop-btn">Emergency Stop</button>
+            </div>
+        </div>
+        <div class="cone-controls">
+            <h3>Falcone2</h3>
+            <div class="control-panel">
+                <!-- Movement Controls -->
+                <button onclick="sendCommand('Falcone2', 'MOVE_FORWARD')">Forward</button>
+                <button onclick="sendCommand('Falcone2', 'MOVE_BACKWARD')">Backward</button>
+                <button onclick="sendCommand('Falcone2', 'ROTATE_LEFT')">Rotate Left</button>
+                <button onclick="sendCommand('Falcone2', 'ROTATE_RIGHT')">Rotate Right</button>
+        
+                <!-- Emergency Stop -->
+                <button onclick="sendCommand('Falcone2', 'STOP')" class="stop-btn">Emergency Stop</button>
+            </div>
+        </div>
+    
+        <!-- Controls for Self -->
+        <div class="cone-controls">
+            <h3>Falcone3</h3>
+            <div class="control-panel">
+                <!-- Movement Controls -->
+                <button onclick="sendCommand('Self', 'MOVE_FORWARD')">Forward</button>
+                <button onclick="sendCommand('Self', 'MOVE_BACKWARD')">Backward</button>
+                <button onclick="sendCommand('Self', 'ROTATE_LEFT')">Rotate Left</button>
+                <button onclick="sendCommand('Self', 'ROTATE_RIGHT')">Rotate Right</button>
+        
+                <!-- Emergency Stop -->
+                <button onclick="sendCommand('Self', 'STOP')" class="stop-btn">Emergency Stop</button>
+            </div>
+        </div>
+    
+        <!-- Exit Button -->
+        <button onclick="exitAlignment()" class="control-btn" style="background: #f44336; color: white;">Exit Alignment</button>
+    </div>
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
     <script>
+        // Initialize WebSocket at the top
+    const ws = new WebSocket(`ws://${window.location.hostname}:81/`);
+
+        // WebSocket event handlers
+        const statusElement = document.getElementById('connection-status');
+
         // Initialize map
         const map = L.map('map', {
             zoomControl: true,
@@ -233,6 +477,25 @@
             return earthRadius * c; // Distance in meters
         }
 
+        function startAlignment() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send("Self:START_ALIGN"); // Send the command in the correct format
+                showNotification("Alignment started.");
+                showAlignmentScreen(); // Show the alignment screen immediately
+            } else {
+                showNotification("WebSocket is not connected.");
+            }
+        }
+
+        function stopAlignment() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send("STOP_ALIGN");
+                showNotification("Alignment stopped by Self.");
+            } else {
+                showNotification("WebSocket is not connected.");
+            }
+        }
+
         // Update distance display
         function updateDistanceDisplay() {
             if (positions.Self && positions.Falcone1 && positions.Falcone2) {
@@ -306,12 +569,60 @@
             }
         }
 
+        function showAlignmentScreen() {
+            document.getElementById('alignment-screen').style.display = 'block';
+        }
+
+        function exitAlignment() {
+            document.getElementById('alignment-screen').style.display = 'none';
+            // Optionally send a message to the leader to stop alignment mode
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send("STOP_ALIGN");
+            }
+        }
+
+        function controlCone(coneId) {
+            console.log(`Controlling ${coneId}`);
+            // Send control commands to the leader ESP32
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(`CONTROL:${coneId}`);
+            }
+        }
+
+        function sendCommand(cmd) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(cmd);
+                console.log(`Command sent: ${cmd}`);
+            } else {
+                console.error("WebSocket is not connected.");
+            }
+        }
+
+        function sendCommand(target, command) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const fullCommand = `${target}:${command}`;
+                ws.send(fullCommand);
+                console.log(`Command sent: ${fullCommand}`);
+            } else {
+                console.error("WebSocket is not connected.");
+            }
+        }
+
+        // Show the alignment screen when confirmation is received
+        ws.onmessage = (event) => {
+            const message = event.data;
+            if (message === "ALIGN_START") {
+                showAlignmentScreen();
+            } else if (message.startsWith("ALIGN:")) {
+                const yaw = parseFloat(message.split(":")[1]);
+                console.log("Alignment correction received:", yaw);
+                // Optionally update the UI with alignment data
+            }
+        };
+
         document.getElementById('center-self').addEventListener('click', () => centerOnDevice('Self'));
         document.getElementById('center-falcone1').addEventListener('click', () => centerOnDevice('Falcone1'));
         document.getElementById('center-falcone2').addEventListener('click', () => centerOnDevice('Falcone2'));
-
-        const statusElement = document.getElementById('connection-status');
-        const ws = new WebSocket(`ws://${window.location.hostname}:81/`);
 
         ws.onopen = () => {
             statusElement.textContent = "Connected";
@@ -326,6 +637,15 @@
         ws.onclose = () => {
             statusElement.textContent = "Disconnected";
             statusElement.className = "disconnected";
+        };
+
+        ws.onmessage = (event) => {
+            const message = event.data;
+            if (message.startsWith("ALIGN:")) {
+                const yaw = parseFloat(message.split(":")[1]);
+                console.log("Alignment correction received:", yaw);
+                // Update UI or take action based on yaw
+            }
         };
 
         // Function to display a popup notification
@@ -357,13 +677,24 @@
             notificationContainer.style.opacity = '1';
 
             // Play a sound
-            const audio = new Audio('https://drive.google.com/file/d/1QH67SRMeXfKbElE9PBU9J_evfUHWSClZ/view?usp=sharing'); // Replace with your desired sound URL
+            const audio = new Audio('https://github.com/Senchou-yujin/falcone-capstone_project/raw/refs/heads/main/Falcone/Tracking-Maps/sound.wav'); // Replace with your desired sound URL
             audio.play();
 
             // Hide the notification after 5 seconds
             setTimeout(() => {
                 notificationContainer.style.opacity = '0';
             }, 5000);
+
+            // Log the message with a timestamp
+            const logList = document.getElementById('log-list');
+            const logEntry = document.createElement('li');
+            const timestamp = new Date().toLocaleString();
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            logList.appendChild(logEntry);
+
+            // Keep the log container scrolled to the bottom
+            const logContainer = document.getElementById('log-container');
+            logContainer.scrollTop = logContainer.scrollHeight;
         }
 
         // Track the last known statuses for comparison

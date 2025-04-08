@@ -10,6 +10,30 @@
 const char* ssid = "Senchou";
 const char* password = "@5qifyddn";
 
+// Motor Driver Pins
+#define ENA_1 5   // Motor A PWM 
+#define IN1_1 13  // Motor A direction
+#define IN2_1 12  
+#define ENB_1 18  // Motor B PWM
+#define IN3_1 14  
+#define IN4_1 27  
+#define ENA_2 19  // Motor C PWM
+#define IN1_2 26  
+#define IN2_2 25  
+#define ENB_2 21  // Motor D PWM
+#define IN3_2 33  
+#define IN4_2 32  
+
+// Movement states
+enum MovementState {
+  HOLD_POSITION,
+  MOVE_FORWARD,
+  MOVE_BACKWARD, 
+  ROTATE_LEFT,
+  ROTATE_RIGHT
+};
+MovementState currentMovement = HOLD_POSITION;
+
 WebServer server(80);
 WebSocketsServer webSocket(81);
 
@@ -20,8 +44,15 @@ TinyGPSPlus gps;
 // MPU6050 setup
 Adafruit_MPU6050 mpu;
 
-// Battery monitoring (simulated - connect actual battery monitoring hardware)
+// Battery monitoring
 #define BATTERY_PIN 34
+
+// Alignment control
+bool isAligning = false;
+unsigned long alignmentStartTime = 0;
+unsigned long lastAlignmentUpdate = 0;
+const unsigned long ALIGNMENT_UPDATE_INTERVAL = 100; // ms
+const unsigned long ALIGNMENT_TIMEOUT = 20000; // 20 seconds
 
 // Store device data
 struct Device {
@@ -56,81 +87,178 @@ void updateAndBroadcastPositions() {
   Serial.println("Broadcast: " + json);
 }
 
+void broadcastAlignmentData(float yaw) {
+  String alignData = "{\"alignment\":{\"yaw\":" + String(yaw, 2) + "}}";
+  webSocket.broadcastTXT(alignData);
+}
+
+// Stop all motors
+void stopAllMotors() {
+  static bool alreadyStopped = false;
+  
+  if (!alreadyStopped) {
+    Serial.println("Stopping All Motors");
+    digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, LOW);
+    digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, LOW);
+    digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, LOW);
+    digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, LOW);
+    alreadyStopped = true;
+  }
+}
+
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
   if (type == WStype_TEXT) {
-    String data = (char*)payload;
-    Serial.println("Received: " + data);
+    String message = (char*)payload;
+    Serial.printf("Raw Received: %s\n", message.c_str());
 
-    // Parse the data string: "ID,lat,lng,status,temp,battery"
-    int commas[5];
-    int index = 0;
-    for (int i = 0; i < data.length() && index < 5; i++) {
-      if (data.charAt(i) == ',') {
-        commas[index++] = i;
-      }
+    // Enhanced command parsing (handles both "COMMAND" and "TARGET:COMMAND")
+    String target = "Self"; // Default target if no prefix
+    String command = message;
+    
+    int colonPos = message.indexOf(':');
+    if (colonPos != -1) {
+      target = message.substring(0, colonPos);
+      command = message.substring(colonPos + 1);
     }
 
-    if (index == 5) { // We found all 5 commas
-      String id = data.substring(0, commas[0]);
-      float lat = data.substring(commas[0] + 1, commas[1]).toFloat();
-      float lng = data.substring(commas[1] + 1, commas[2]).toFloat();
-      int status = data.substring(commas[2] + 1, commas[3]).toInt();
-      float temp = data.substring(commas[3] + 1, commas[4]).toFloat();
-      int battery = data.substring(commas[4] + 1).toInt();
+    String myDeviceID = "Self"; // Set this to match your device name
 
-      for (int i = 0; i < 2; i++) { // Only update Falcone1/2 (skip Self)
-        if (devices[i].id == id) {
-          devices[i].lat = lat;
-          devices[i].lng = lng;
-          devices[i].status = status;
-          devices[i].temperature = temp;
-          devices[i].battery = battery;
-          devices[i].lastUpdate = millis();
-          break;
-        }
+    // Execute if command is for this device or broadcast to all
+    if (target == myDeviceID || target == "All") {
+      Serial.printf("Executing for %s: %s\n", myDeviceID.c_str(), command.c_str());
+      
+      // Handle movement commands
+      if (command == "MOVE_FORWARD") {
+        currentMovement = MOVE_FORWARD;
+        digitalWrite(IN1_1, HIGH); digitalWrite(IN2_1, LOW);
+        digitalWrite(IN3_1, HIGH); digitalWrite(IN4_1, LOW);
+        digitalWrite(IN1_2, HIGH); digitalWrite(IN2_2, LOW);
+        digitalWrite(IN3_2, HIGH); digitalWrite(IN4_2, LOW);
+        webSocket.broadcastTXT(myDeviceID + ":MOVING_FORWARD");
       }
-      updateAndBroadcastPositions();
+      else if (command == "MOVE_BACKWARD") {
+        currentMovement = MOVE_BACKWARD;
+        digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, HIGH);
+        digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, HIGH);
+        digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, HIGH);
+        digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, HIGH);
+        webSocket.broadcastTXT(myDeviceID + ":MOVING_BACKWARD");
+      }
+      else if (command == "ROTATE_LEFT") {
+        currentMovement = ROTATE_LEFT;
+        digitalWrite(IN1_1, HIGH); digitalWrite(IN2_1, LOW);
+        digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, HIGH);
+        digitalWrite(IN1_2, HIGH); digitalWrite(IN2_2, LOW);
+        digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, HIGH);
+        webSocket.broadcastTXT(myDeviceID + ":ROTATING_LEFT");
+      }
+      else if (command == "ROTATE_RIGHT") {
+        currentMovement = ROTATE_RIGHT;
+        digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, HIGH);
+        digitalWrite(IN3_1, HIGH); digitalWrite(IN4_1, LOW);
+        digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, HIGH);
+        digitalWrite(IN3_2, HIGH); digitalWrite(IN4_2, LOW);
+        webSocket.broadcastTXT(myDeviceID + ":ROTATING_RIGHT");
+      }
+      // Enhanced STOP command handling
+      else if (command == "STOP") {
+        currentMovement = HOLD_POSITION;
+        isAligning = false;
+        digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, LOW);
+        digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, LOW);
+        digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, LOW);
+        digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, LOW);
+        webSocket.broadcastTXT(myDeviceID + ":STOPPED");
+        Serial.println("Motors completely stopped");
+      }
+      // Alignment control
+      else if (command == "START_ALIGN") {
+        isAligning = true;
+        currentMovement = HOLD_POSITION;
+        alignmentStartTime = millis();
+        digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, LOW);
+        digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, LOW);
+        digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, LOW);
+        digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, LOW);
+        webSocket.broadcastTXT(myDeviceID + ":ALIGNING");
+        Serial.println("Alignment started - motors stopped");
+      }
+      else {
+        Serial.println("Unknown command: " + command);
+      }
+    }
+    // Forward commands to other devices
+    else if (target == "Falcone1" || target == "Falcone2") {
+      webSocket.broadcastTXT(message);
+      Serial.println("Command forwarded to " + target);
+    }
+    else {
+      Serial.println("Unknown target: " + target);
     }
   }
 }
 
 int readBatteryStatus() {
-  // Read battery voltage and return status
   int value = analogRead(BATTERY_PIN);
-  float voltage = value * (3.3 / 4095.0) * 2; // Adjust for voltage divider
-  
-  if (voltage < 3.3) return 0;     // Critical
-  else if (voltage < 3.6) return 1; // Low
-  else return 2;                    // Good
+  float voltage = value * (3.3 / 4095.0) * 2;
+  if (voltage < 3.3) return 0;
+  else if (voltage < 3.6) return 1;
+  else return 2;
 }
 
 void updateSelfData() {
-  // Get MPU6050 data
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
   
-  // Calculate tilt angles
   float angleX = atan2(a.acceleration.y, a.acceleration.z) * 180 / PI;
   float angleY = atan2(-a.acceleration.x, sqrt(a.acceleration.y*a.acceleration.y + a.acceleration.z*a.acceleration.z)) * 180 / PI;
   
-  // Determine status (0=normal, 1=tilted, 2=flipped)
   int status = 0;
   if (abs(angleX) > 45 || abs(angleY) > 45) status = 1;
   if (abs(angleX) > 135 || abs(angleY) > 135) status = 2;
 
-  // Update self data
   devices[2].status = status;
   devices[2].temperature = temp.temperature;
   devices[2].battery = readBatteryStatus();
   devices[2].lastUpdate = millis();
 }
 
+void setupMotors() {
+  pinMode(ENA_1, OUTPUT); pinMode(IN1_1, OUTPUT); pinMode(IN2_1, OUTPUT);
+  pinMode(ENB_1, OUTPUT); pinMode(IN3_1, OUTPUT); pinMode(IN4_1, OUTPUT);
+  pinMode(ENA_2, OUTPUT); pinMode(IN1_2, OUTPUT); pinMode(IN2_2, OUTPUT);
+  pinMode(ENB_2, OUTPUT); pinMode(IN3_2, OUTPUT); pinMode(IN4_2, OUTPUT);
+  stopAllMotors();
+}
+
+String getContentType(String filename) {
+  if (filename.endsWith(".html")) return "text/html";
+  else if (filename.endsWith(".css")) return "text/css";
+  else if (filename.endsWith(".js")) return "application/javascript";
+  else if (filename.endsWith(".png")) return "image/png";
+  else if (filename.endsWith(".ico")) return "image/x-icon";
+  return "text/plain";
+}
+
+bool handleFileRead(String path) {
+  if (path.endsWith("/")) path += "index.html";
+  String contentType = getContentType(path);
+  
+  if (SPIFFS.exists(path)) {
+    File file = SPIFFS.open(path, "r");
+    server.streamFile(file, contentType);
+    file.close();
+    return true;
+  }
+  return false;
+}
+
 void setup() {
   Serial.begin(115200);
   GPS.begin(9600, SERIAL_8N1, 16, 17);
   analogReadResolution(12);
+  setupMotors();
 
-  // Initialize MPU6050
   if (!mpu.begin()) {
     Serial.println("Failed to find MPU6050 chip");
     while (1) delay(10);
@@ -150,9 +278,15 @@ void setup() {
   Serial.println("WiFi Connected. IP: " + WiFi.localIP().toString());
 
   server.on("/", HTTP_GET, []() {
-    File file = SPIFFS.open("/index.html", "r");
-    server.streamFile(file, "text/html");
-    file.close();
+    if(!handleFileRead("/index.html")) {
+      server.send(404, "text/plain", "File not found");
+    }
+  });
+  
+  server.onNotFound([]() {
+    if(!handleFileRead(server.uri())) {
+      server.send(404, "text/plain", "File not found");
+    }
   });
 
   webSocket.onEvent(webSocketEvent);
@@ -164,27 +298,39 @@ void loop() {
   server.handleClient();
   webSocket.loop();
 
-  // Read and process GPS data
-  while (GPS.available() > 0) {
-    if (gps.encode(GPS.read())) {
-      if (gps.location.isValid()) {
-        devices[2].lat = gps.location.lat();
-        devices[2].lng = gps.location.lng();
-        updateSelfData();
-        
-        // Serial.print("Self Updated: ");
-        // Serial.print(devices[2].lat, 6);
-        // Serial.print(", ");
-        // Serial.print(devices[2].lng, 6);
-        // Serial.print(" | Status: ");
-        // Serial.print(devices[2].status);
-        // Serial.print(" | Temp: ");
-        // Serial.print(devices[2].temperature);
-        // Serial.print(" | Battery: ");
-        // Serial.println(devices[2].battery);
-        
-        updateAndBroadcastPositions();
+  // GPS Handling - Only update if not aligning
+  if (!isAligning) {
+    while (GPS.available() > 0) {
+      if (gps.encode(GPS.read())) {
+        if (gps.location.isValid()) {
+          devices[2].lat = gps.location.lat();
+          devices[2].lng = gps.location.lng();
+          updateSelfData();
+          updateAndBroadcastPositions();
+        }
       }
+    }
+  }
+  else {
+    // Explicitly clear GPS buffer during alignment
+    while (GPS.available() > 0) {
+      GPS.read(); // Discard GPS data
+    }
+  }
+
+  // Alignment Handling
+  if (isAligning) {
+    if (millis() - alignmentStartTime > ALIGNMENT_TIMEOUT) {
+      Serial.println("Alignment timeout - restarting ESP");
+      ESP.restart();
+    }
+    
+    if (millis() - lastAlignmentUpdate >= ALIGNMENT_UPDATE_INTERVAL) {
+      sensors_event_t a, g, temp;
+      mpu.getEvent(&a, &g, &temp);
+      float yaw = atan2(a.acceleration.y, a.acceleration.x) * 180 / PI;
+      broadcastAlignmentData(yaw);
+      lastAlignmentUpdate = millis();
     }
   }
 }
