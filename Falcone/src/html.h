@@ -395,110 +395,12 @@
         <button onclick="exitAlignment()" class="control-btn" style="background: #f44336; color: white;">Exit Alignment</button>
     </div>
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
-            <script>
-            // WebSocket connections - fixed syntax
-            const wsSelf = new WebSocket(`ws://${window.location.hostname}:81/`);
-            const wsFalcone1 = new WebSocket('ws://192.168.254.207:81/');
-            const wsFalcone2 = new WebSocket('ws://192.168.254.106:81/');
+    <script>
+        // Initialize WebSocket at the top
+    const ws = new WebSocket(`ws://${window.location.hostname}:81/`);
 
-            // Simplified command sending function
-            function sendCommand(target, command) {
-                let ws;
-                if (target === "Falcone1") {
-                    ws = wsFalcone1;
-                } else if (target === "Falcone2") {
-                    ws = wsFalcone2;
-                } else if (target === "Self") {
-                    ws = wsSelf;
-                }
-
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(command); // Send raw command like "MOVE_FORWARD"
-                    console.log(`Command sent to ${target}: ${command}`);
-                    addToLog(`Sent to ${target}: ${command}`);
-                } else {
-                    console.error(`WebSocket for ${target} not ready`);
-                    addToLog(`Failed to send to ${target}: ${command}`);
-                }
-            }
-
-            // Function to add messages to log
-            function addToLog(message) {
-                const logList = document.getElementById('log-list');
-                const logEntry = document.createElement('li');
-                const timestamp = new Date().toLocaleTimeString();
-                logEntry.textContent = `[${timestamp}] ${message}`;
-                logList.appendChild(logEntry);
-                
-                // Auto-scroll to bottom
-                const logContainer = document.getElementById('log-container');
-                logContainer.scrollTop = logContainer.scrollHeight;
-            }
-
-            // Update WebSocket event handlers to match ESP32 JSON format
-            function setupWebSocket(ws, deviceName) {
-                ws.onopen = () => {
-                    console.log(`Connected to ${deviceName}`);
-                    addToLog(`Connected to ${deviceName}`);
-                    document.getElementById('connection-status').textContent = "Connected";
-                    document.getElementById('connection-status').className = "connected";
-                };
-
-                ws.onmessage = (event) => {
-                    try {
-                        const data = JSON.parse(event.data);
-                        console.log(`Data from ${deviceName}:`, data);
-                        
-                        // Update position if valid
-                        if (data.lat && data.lng) {
-                            const newPos = [parseFloat(data.lat), parseFloat(data.lng)];
-                            if (markers[deviceName]) {
-                                markers[deviceName].setLatLng(newPos);
-                                positions[deviceName] = newPos;
-                                
-                                // Update popup
-                                let popupContent = `<div style="min-width: 150px"><b>${deviceName}</b><br>`;
-                                popupContent += `Lat: ${data.lat.toFixed(6)}<br>`;
-                                popupContent += `Lng: ${data.lng.toFixed(6)}<br>`;
-                                
-                                if (data.temp) popupContent += `Temp: ${data.temp}°C<br>`;
-                                if (data.battery) popupContent += `Battery: ${data.battery}<br>`;
-                                popupContent += `</div>`;
-                                
-                                markers[deviceName].setPopupContent(popupContent);
-                            }
-                            
-                            // Update distances
-                            updateDistanceDisplay();
-                        }
-                        
-                        // Handle command responses
-                        if (data.command) {
-                            addToLog(`${deviceName}: ${data.command}`);
-                        }
-                    } catch (e) {
-                        console.error("Parse error:", e);
-                        addToLog(`Error parsing data from ${deviceName}`);
-                    }
-                };
-
-                ws.onclose = () => {
-                    console.log(`Disconnected from ${deviceName}`);
-                    addToLog(`Disconnected from ${deviceName}`);
-                    document.getElementById('connection-status').textContent = "Disconnected";
-                    document.getElementById('connection-status').className = "disconnected";
-                };
-
-                ws.onerror = (error) => {
-                    console.error(`WebSocket error for ${deviceName}:`, error);
-                    addToLog(`Error with ${deviceName} connection`);
-                };
-            }
-
-            // Initialize WebSocket connections
-            setupWebSocket(wsSelf, "Self");
-            setupWebSocket(wsFalcone1, "Falcone1");
-            setupWebSocket(wsFalcone2, "Falcone2");
+        // WebSocket event handlers
+        const statusElement = document.getElementById('connection-status');
 
         // Initialize map
         const map = L.map('map', {
@@ -576,8 +478,8 @@
         }
 
         function startAlignment() {
-            if (wsSelf && wsSelf.readyState === WebSocket.OPEN) {
-                wsSelf.send("Self:START_ALIGN"); // Send the command in the correct format
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send("Self:START_ALIGN"); // Send the command in the correct format
                 showNotification("Alignment started.");
                 showAlignmentScreen(); // Show the alignment screen immediately
             } else {
@@ -586,8 +488,8 @@
         }
 
         function stopAlignment() {
-            if (wsSelf && wsSelf.readyState === WebSocket.OPEN) {
-                wsSelf.send("STOP_ALIGN");
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send("STOP_ALIGN");
                 showNotification("Alignment stopped by Self.");
             } else {
                 showNotification("WebSocket is not connected.");
@@ -674,22 +576,22 @@
         function exitAlignment() {
             document.getElementById('alignment-screen').style.display = 'none';
             // Optionally send a message to the leader to stop alignment mode
-            if (wsSelf && wsSelf.readyState === WebSocket.OPEN) {
-                wsSelf.send("STOP_ALIGN");
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send("STOP_ALIGN");
             }
         }
 
         function controlCone(coneId) {
             console.log(`Controlling ${coneId}`);
             // Send control commands to the leader ESP32
-            if (wsSelf && wsSelf.readyState === WebSocket.OPEN) {
-                wsSelf.send(`CONTROL:${coneId}`);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(`CONTROL:${coneId}`);
             }
         }
 
         function sendCommand(cmd) {
-            if (wsSelf && wsSelf.readyState === WebSocket.OPEN) {
-                wsSelf.send(cmd);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(cmd);
                 console.log(`Command sent: ${cmd}`);
             } else {
                 console.error("WebSocket is not connected.");
@@ -697,28 +599,17 @@
         }
 
         function sendCommand(target, command) {
-            let ws;
-            if (target === "Falcone1") {
-                ws = wsFalcone1;
-            } else if (target === "Falcone2") {
-                ws = wsFalcone2;
-            } else if (target === "Self") {
-                ws = wsSelf;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const fullCommand = `${target}:${command}`;
+                ws.send(fullCommand);
+                console.log(`Command sent: ${fullCommand}`);
             } else {
-                console.error("Invalid target:", target);
-                return;
-            }
-
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(command);
-                console.log(`Command sent to ${target}: ${command}`);
-            } else {
-                console.error(`WebSocket for ${target} is not open`);
+                console.error("WebSocket is not connected.");
             }
         }
 
         // Show the alignment screen when confirmation is received
-        wsSelf.onmessage = (event) => {
+        ws.onmessage = (event) => {
             const message = event.data;
             if (message === "ALIGN_START") {
                 showAlignmentScreen();
@@ -733,22 +624,22 @@
         document.getElementById('center-falcone1').addEventListener('click', () => centerOnDevice('Falcone1'));
         document.getElementById('center-falcone2').addEventListener('click', () => centerOnDevice('Falcone2'));
 
-        wsSelf.onopen = () => {
+        ws.onopen = () => {
             statusElement.textContent = "Connected";
             statusElement.className = "connected";
         };
 
-        wsSelf.onerror = (error) => {
+        ws.onerror = (error) => {
             statusElement.textContent = "Connection Error";
             statusElement.className = "disconnected";
         };
 
-        wsSelf.onclose = () => {
+        ws.onclose = () => {
             statusElement.textContent = "Disconnected";
             statusElement.className = "disconnected";
         };
 
-        wsSelf.onmessage = (event) => {
+        ws.onmessage = (event) => {
             const message = event.data;
             if (message.startsWith("ALIGN:")) {
                 const yaw = parseFloat(message.split(":")[1]);
@@ -813,59 +704,55 @@
             "Falcone2": { tilt: null, battery: null }
         };
 
-
         // WebSocket message handler
-        wsSelf.onmessage = (event) => {
+        ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
+                data.devices.forEach(device => {
+                    if (device.lat !== 0 && device.lng !== 0) {
+                        const newPos = [device.lat, device.lng];
+                        markers[device.id].setLatLng(newPos);
+                        positions[device.id] = newPos;
 
-                // Check if 'devices' exists and is an array
-                if (Array.isArray(data.devices)) {
-                    data.devices.forEach(device => {
-                        if (device.lat !== 0 && device.lng !== 0) {
-                            const newPos = [device.lat, device.lng];
-                            markers[device.id].setLatLng(newPos);
-                            positions[device.id] = newPos;
+                        let popupContent = `<div style="min-width: 150px"><b>${device.id}</b><br>`;
+                        popupContent += `Lat: ${device.lat.toFixed(6)}<br>`;
+                        popupContent += `Lng: ${device.lng.toFixed(6)}<br>`;
 
-                            let popupContent = `<div style="min-width: 150px"><b>${device.id}</b><br>`;
-                            popupContent += `Lat: ${device.lat.toFixed(6)}<br>`;
-                            popupContent += `Lng: ${device.lng.toFixed(6)}<br>`;
-
-                            // Optional temperature
-                            if (device.temp !== undefined) {
-                                popupContent += `Temp: ${device.temp.toFixed(1)}°C<br>`;
-                            }
-
-                            // Status info
-                            const tiltStatus = ["Normal", "Tilted", "Flipped"][device.status] || "Unknown";
-                            const batteryStatus = ["Critical", "Low", "Good"][device.battery] || "Unknown";
-
-                            popupContent += `Tilt: <b>${tiltStatus}</b><br>`;
-                            popupContent += `Battery: <b>${batteryStatus}</b></div>`;
-
-                            markers[device.id].setPopupContent(popupContent);
-
-                            // Check for changes in tilt or battery status
-                            if (lastStatuses[device.id].tilt !== device.status) {
-                                showNotification(`${device.id} orientation changed to ${tiltStatus}`);
-                            }
-                            if (lastStatuses[device.id].battery !== device.battery) {
-                                showNotification(`${device.id} battery status changed to ${batteryStatus}`);
-                            }
-
-                            // Update the last known statuses
-                            lastStatuses[device.id].tilt = device.status;
-                            lastStatuses[device.id].battery = device.battery;
+                        // Optional temperature
+                        if (device.temp !== undefined) {
+                            popupContent += `Temp: ${device.temp.toFixed(1)}°C<br>`;
                         }
-                    });
-                } else {
-                    console.warn("Received data does not contain a valid 'devices' array:", data);
-                }
+
+                        // Status info
+                        const tiltStatus = ["Normal", "Tilted", "Flipped"][device.status] || "Unknown";
+                        const batteryStatus = ["Critical", "Low", "Good"][device.battery] || "Unknown";
+
+                        popupContent += `Tilt: <b>${tiltStatus}</b><br>`;
+                        popupContent += `Battery: <b>${batteryStatus}</b></div>`;
+
+                        markers[device.id].setPopupContent(popupContent);
+
+                        // Check for changes in tilt or battery status
+                        if (lastStatuses[device.id].tilt !== device.status) {
+                            showNotification(`${device.id} orientation changed to ${tiltStatus}`);
+                        }
+                        if (lastStatuses[device.id].battery !== device.battery) {
+                            showNotification(`${device.id} battery status changed to ${batteryStatus}`);
+                        }
+
+                        // Update the last known statuses
+                        lastStatuses[device.id].tilt = device.status;
+                        lastStatuses[device.id].battery = device.battery;
+                    }
+                });
+
+                // Update distances after all positions are updated
+                updateDistanceDisplay();
+
             } catch (e) {
                 console.error("Data error:", e);
             }
         };
-
 
         window.addEventListener('resize', () => {
             map.invalidateSize();

@@ -53,7 +53,7 @@ HardwareSerial GPS(1); // Use UART1 for GPS
 #define TXD2 17
 
 // Device-specific data
-const char* deviceID = "Falcone1"; // Change to "Falcone2" for the second follower
+const char* deviceID = "Falcone2"; // Change to "Falcone2" for the second follower
 
 
 // Stop all motors

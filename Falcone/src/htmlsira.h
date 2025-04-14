@@ -334,9 +334,9 @@
             <div id="connection-status" class="disconnected">Disconnected</div>
         </div>
         <div id="control-panel">
-            <button id="center-self" class="control-btn">Falcone1</button>
-            <button id="center-falcone1" class="control-btn">Falcone2</button>
-            <button id="center-falcone2" class="control-btn">Falcone3</button>
+            <button id="center-self" class="control-btn" onclick="centerMap('Self')">Falcone1</button>
+            <button id="center-falcone1" class="control-btn" onclick="centerMap('Falcone1')">Falcone2</button>
+            <button id="center-falcone2" class="control-btn" onclick="centerMap('Falcone2')">Falcone3</button>
             <button id="toggle-map" class="control-btn">Satellite View</button>
             <button onclick="startAlignment()" class="control-btn" style="flex: 1 1 100%;">Start Alignment</button>
         </div>
@@ -345,7 +345,7 @@
             <ul id="log-list" style="list-style: none; padding: 0; margin: 0;"></ul>
         </div>
     </div>
-    <div id="alignment-screen" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #f0f0f0; z-index: 1000; padding: 20px; text-align: center;">
+    <div id="alignment-screen">
         <h2>Manual Control</h2>
         <p>Use the controls below to manually control each cone.</p>
 
@@ -395,110 +395,18 @@
         <button onclick="exitAlignment()" class="control-btn" style="background: #f44336; color: white;">Exit Alignment</button>
     </div>
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
-            <script>
-            // WebSocket connections - fixed syntax
-            const wsSelf = new WebSocket(`ws://${window.location.hostname}:81/`);
-            const wsFalcone1 = new WebSocket('ws://192.168.254.207:81/');
-            const wsFalcone2 = new WebSocket('ws://192.168.254.106:81/');
+    <script>
+        // Use the hostname of the device serving the HTML file
+        const selfIP = window.location.hostname;
 
-            // Simplified command sending function
-            function sendCommand(target, command) {
-                let ws;
-                if (target === "Falcone1") {
-                    ws = wsFalcone1;
-                } else if (target === "Falcone2") {
-                    ws = wsFalcone2;
-                } else if (target === "Self") {
-                    ws = wsSelf;
-                }
+        // Define the IP addresses of the other devices
+        const falcone1IP = "192.168.254.106"; // Replace with the actual IP of Falcone1
+        const falcone2IP = "192.168.254.107"; // Replace with the actual IP of Falcone2
 
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(command); // Send raw command like "MOVE_FORWARD"
-                    console.log(`Command sent to ${target}: ${command}`);
-                    addToLog(`Sent to ${target}: ${command}`);
-                } else {
-                    console.error(`WebSocket for ${target} not ready`);
-                    addToLog(`Failed to send to ${target}: ${command}`);
-                }
-            }
-
-            // Function to add messages to log
-            function addToLog(message) {
-                const logList = document.getElementById('log-list');
-                const logEntry = document.createElement('li');
-                const timestamp = new Date().toLocaleTimeString();
-                logEntry.textContent = `[${timestamp}] ${message}`;
-                logList.appendChild(logEntry);
-                
-                // Auto-scroll to bottom
-                const logContainer = document.getElementById('log-container');
-                logContainer.scrollTop = logContainer.scrollHeight;
-            }
-
-            // Update WebSocket event handlers to match ESP32 JSON format
-            function setupWebSocket(ws, deviceName) {
-                ws.onopen = () => {
-                    console.log(`Connected to ${deviceName}`);
-                    addToLog(`Connected to ${deviceName}`);
-                    document.getElementById('connection-status').textContent = "Connected";
-                    document.getElementById('connection-status').className = "connected";
-                };
-
-                ws.onmessage = (event) => {
-                    try {
-                        const data = JSON.parse(event.data);
-                        console.log(`Data from ${deviceName}:`, data);
-                        
-                        // Update position if valid
-                        if (data.lat && data.lng) {
-                            const newPos = [parseFloat(data.lat), parseFloat(data.lng)];
-                            if (markers[deviceName]) {
-                                markers[deviceName].setLatLng(newPos);
-                                positions[deviceName] = newPos;
-                                
-                                // Update popup
-                                let popupContent = `<div style="min-width: 150px"><b>${deviceName}</b><br>`;
-                                popupContent += `Lat: ${data.lat.toFixed(6)}<br>`;
-                                popupContent += `Lng: ${data.lng.toFixed(6)}<br>`;
-                                
-                                if (data.temp) popupContent += `Temp: ${data.temp}°C<br>`;
-                                if (data.battery) popupContent += `Battery: ${data.battery}<br>`;
-                                popupContent += `</div>`;
-                                
-                                markers[deviceName].setPopupContent(popupContent);
-                            }
-                            
-                            // Update distances
-                            updateDistanceDisplay();
-                        }
-                        
-                        // Handle command responses
-                        if (data.command) {
-                            addToLog(`${deviceName}: ${data.command}`);
-                        }
-                    } catch (e) {
-                        console.error("Parse error:", e);
-                        addToLog(`Error parsing data from ${deviceName}`);
-                    }
-                };
-
-                ws.onclose = () => {
-                    console.log(`Disconnected from ${deviceName}`);
-                    addToLog(`Disconnected from ${deviceName}`);
-                    document.getElementById('connection-status').textContent = "Disconnected";
-                    document.getElementById('connection-status').className = "disconnected";
-                };
-
-                ws.onerror = (error) => {
-                    console.error(`WebSocket error for ${deviceName}:`, error);
-                    addToLog(`Error with ${deviceName} connection`);
-                };
-            }
-
-            // Initialize WebSocket connections
-            setupWebSocket(wsSelf, "Self");
-            setupWebSocket(wsFalcone1, "Falcone1");
-            setupWebSocket(wsFalcone2, "Falcone2");
+        // Create WebSocket connections for each device
+        const wsSelf = new WebSocket(`ws://${selfIP}:81/ws`);
+        const wsFalcone1 = new WebSocket(`ws://${falcone1IP}:81/ws`);
+        const wsFalcone2 = new WebSocket(`ws://${falcone2IP}:81/ws`);
 
         // Initialize map
         const map = L.map('map', {
@@ -533,6 +441,7 @@
             }
         });
 
+        // Initialize markers and positions
         const positions = {
             "Self": null,
             "Falcone1": null,
@@ -540,26 +449,132 @@
         };
 
         const markers = {
+            "Self": L.marker([0, 0], {
+                icon: createIcon('self'),
+                title: "Self"
+            }).addTo(map).bindPopup("Waiting for data..."),
+
             "Falcone1": L.marker([0, 0], {
                 icon: createIcon('falcone1'),
-                title: "Falcone2"
+                title: "Falcone1"
             }).addTo(map).bindPopup("Waiting for data..."),
 
             "Falcone2": L.marker([0, 0], {
                 icon: createIcon('falcone2'),
-                title: "Falcone3"
-            }).addTo(map).bindPopup("Waiting for data..."),
-
-            "Self": L.marker([0, 0], {
-                icon: createIcon('self'),
-                title: "Falcone1"
+                title: "Falcone2"
             }).addTo(map).bindPopup("Waiting for data..."),
         };
+
+        function sendCommand(deviceID, command) {
+            let ws;
+            if (deviceID === "Self") {
+                ws = wsSelf;
+            } else if (deviceID === "Falcone1") {
+                ws = wsFalcone1;
+            } else if (deviceID === "Falcone2") {
+                ws = wsFalcone2;
+            } else {
+                console.error("Invalid device ID:", deviceID);
+                return;
+            }
+
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(command);
+                console.log(`Command sent to ${deviceID}: ${command}`);
+                showNotification(`Command sent to ${deviceID}: ${command}`);
+            } else {
+                console.error(`WebSocket for ${deviceID} is not open`);
+                showNotification(`WebSocket for ${deviceID} is not open`);
+            }
+        }
+
+        // WebSocket event handlers for each device
+        function setupWebSocket(ws, deviceID) {
+            ws.onopen = () => {
+                console.log(`Connected to ${deviceID}`);
+                showNotification(`Connected to ${deviceID}`);
+                updateConnectionStatus(true);
+            };
+
+                        // Store the last known statuses for each device
+            const lastStatuses = {
+                orientation: {},
+                battery: {}
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+
+                    if (data.deviceID === deviceID) {
+                        const newPos = [data.lat, data.lng];
+                        if (markers[deviceID]) {
+                            markers[deviceID].setLatLng(newPos);
+                        } else {
+                            markers[deviceID] = L.marker(newPos, { title: deviceID }).addTo(map);
+                        }
+
+                        const popupContent = `
+                            <div>
+                                <b>${data.deviceID}</b><br>
+                                Latitude: ${data.lat.toFixed(6)}<br>
+                                Longitude: ${data.lng.toFixed(6)}<br>
+                                Status: ${["Normal", "Tilted", "Flipped"][data.status]}<br>
+                                Temperature: ${data.temp.toFixed(2)} °C<br>
+                                Battery: ${["Critical", "Low", "Good"][data.battery]}
+                            </div>
+                        `;
+                        markers[deviceID].bindPopup(popupContent);
+
+                        positions[deviceID] = newPos;
+
+                        // Check and log orientation status if changed
+                        const orientationStatus = ["Normal", "Tilted", "Flipped"][data.status];
+                        if (lastStatuses.orientation[deviceID] !== orientationStatus) {
+                            showNotification(`${deviceID} orientation: ${orientationStatus}`, true);
+                            lastStatuses.orientation[deviceID] = orientationStatus;
+                        }
+
+                        // Check and log battery status if changed
+                        const batteryStatus = ["Critical", "Low", "Good"][data.battery];
+                        if (lastStatuses.battery[deviceID] !== batteryStatus) {
+                            showNotification(`${deviceID} battery status: ${batteryStatus}`, true);
+                            lastStatuses.battery[deviceID] = batteryStatus;
+                        }
+
+                        updateDistanceDisplay();
+                    }
+                } catch (e) {
+                    console.error(`Error parsing WebSocket message from ${deviceID}:`, e);
+                }
+            };
+
+            ws.onclose = () => {
+                console.log(`Disconnected from ${deviceID}`);
+                showNotification(`Disconnected from ${deviceID}`);
+                updateConnectionStatus(false);
+
+                        // Update the popup to show "Waiting for connection"
+                if (markers[deviceID]) {
+                    markers[deviceID].bindPopup("Waiting for connection").openPopup();
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.error(`WebSocket error for ${deviceID}:`, error);
+                updateConnectionStatus(false);
+            };
+        }
+
+        // Setup WebSocket connections
+        setupWebSocket(wsSelf, "Self");
+        setupWebSocket(wsFalcone1, "Falcone1");
+        setupWebSocket(wsFalcone2, "Falcone2");
 
         // Distance calculation function (Haversine formula)
         function calculateDistance(lat1, lon1, lat2, lon2) {
             const earthRadius = 6371000; // Earth radius in meters
-            
+
             // Convert degrees to radians
             const lat1Rad = lat1 * Math.PI / 180;
             const lat2Rad = lat2 * Math.PI / 180;
@@ -567,84 +582,40 @@
             const lonDiffRad = (lon2 - lon1) * Math.PI / 180;
 
             // Haversine formula
-            const a = Math.sin(latDiffRad/2) * Math.sin(latDiffRad/2) +
-                    Math.cos(lat1Rad) * Math.cos(lat2Rad) *
-                    Math.sin(lonDiffRad/2) * Math.sin(lonDiffRad/2);
-            
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            const a = Math.sin(latDiffRad / 2) * Math.sin(latDiffRad / 2) +
+                Math.cos(lat1Rad) * Math.cos(lat2Rad) *
+                Math.sin(lonDiffRad / 2) * Math.sin(lonDiffRad / 2);
+
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
             return earthRadius * c; // Distance in meters
-        }
-
-        function startAlignment() {
-            if (wsSelf && wsSelf.readyState === WebSocket.OPEN) {
-                wsSelf.send("Self:START_ALIGN"); // Send the command in the correct format
-                showNotification("Alignment started.");
-                showAlignmentScreen(); // Show the alignment screen immediately
-            } else {
-                showNotification("WebSocket is not connected.");
-            }
-        }
-
-        function stopAlignment() {
-            if (wsSelf && wsSelf.readyState === WebSocket.OPEN) {
-                wsSelf.send("STOP_ALIGN");
-                showNotification("Alignment stopped by Self.");
-            } else {
-                showNotification("WebSocket is not connected.");
-            }
         }
 
         // Update distance display
         function updateDistanceDisplay() {
             if (positions.Self && positions.Falcone1 && positions.Falcone2) {
-                // Calculate Self to Falcone1 distance
+                // Calculate distances
                 const distSelfF1 = calculateDistance(
                     positions.Self[0], positions.Self[1],
                     positions.Falcone1[0], positions.Falcone1[1]
                 );
-                
-                // Calculate Falcone1 to Falcone2 distance
+
                 const distF1F2 = calculateDistance(
                     positions.Falcone1[0], positions.Falcone1[1],
                     positions.Falcone2[0], positions.Falcone2[1]
                 );
 
-                // Update UI
-                document.getElementById('dist-self-f1').textContent = formatDistance(distSelfF1);
-                document.getElementById('dist-f1-f2').textContent = formatDistance(distF1F2);
-
-                // Update popups with distance info
-                updatePopupsWithDistances(distSelfF1, 0, distF1F2); // 0 for unused Self-Falcone2 distance
+                // // Update UI
+                // document.getElementById('dist-self-f1').textContent = formatDistance(distSelfF1);
+                // document.getElementById('dist-f1-f2').textContent = formatDistance(distF1F2);
             }
         }
+
         function formatDistance(meters) {
             if (meters >= 1000) {
                 return (meters / 1000).toFixed(2) + ' km';
             } else {
                 return Math.round(meters) + ' m';
             }
-        }
-
-
-        function updatePopupsWithDistances(distSelfF1, distSelfF2, distF1F2) {
-            // Update Self popup
-            markers.Self.setPopupContent(
-                markers.Self.getPopup().getContent().replace('</div>', 
-                `<hr>Distance to Falcone1: <b>${formatDistance(distSelfF1)}</b></div>`)
-            );
-
-            // Update Falcone1 popup
-            markers.Falcone1.setPopupContent(
-                markers.Falcone1.getPopup().getContent().replace('</div>', 
-                `<hr>Distance to Self: <b>${formatDistance(distSelfF1)}</b><br>
-                Distance to Falcone2: <b>${formatDistance(distF1F2)}</b></div>`)
-            );
-
-            // Update Falcone2 popup
-            markers.Falcone2.setPopupContent(
-                markers.Falcone2.getPopup().getContent().replace('</div>', 
-                `<hr>Distance to Falcone1: <b>${formatDistance(distF1F2)}</b></div>`)
-            );
         }
 
         function createIcon(className) {
@@ -659,217 +630,73 @@
             });
         }
 
-        function centerOnDevice(deviceId) {
-            if (positions[deviceId]) {
-                map.flyTo(positions[deviceId], 18, {
-                    duration: 0.5
-                });
+        function showNotification(message) {
+            console.log(message); // Log the notification
+            const logList = document.getElementById('log-list');
+            const logItem = document.createElement('li');
+            logItem.textContent = message;
+            logList.appendChild(logItem);
+            logList.scrollTop = logList.scrollHeight;
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusElement = document.getElementById('connection-status');
+            if (connected) {
+                statusElement.textContent = "Connected";
+                statusElement.className = "connected";
+            } else {
+                statusElement.textContent = "Disconnected";
+                statusElement.className = "disconnected";
             }
         }
 
-        function showAlignmentScreen() {
+        function centerMap(deviceID) {
+            if (positions[deviceID]) {
+                map.setView(positions[deviceID], 18);
+                showNotification(`Centered map on ${deviceID}`);
+            } else {
+                showNotification(`No position data available for ${deviceID}`);
+            }
+        }
+
+        function startAlignment() {
             document.getElementById('alignment-screen').style.display = 'block';
+            showNotification("Entered alignment mode");
+
+            // Send the "START_ALIGNMENT" command to all devices
+            sendCommand('Self', 'START_ALIGNMENT');
+            sendCommand('Falcone1', 'START_ALIGNMENT');
+            sendCommand('Falcone2', 'START_ALIGNMENT');
         }
 
         function exitAlignment() {
             document.getElementById('alignment-screen').style.display = 'none';
-            // Optionally send a message to the leader to stop alignment mode
-            if (wsSelf && wsSelf.readyState === WebSocket.OPEN) {
-                wsSelf.send("STOP_ALIGN");
-            }
+            showNotification("Exited alignment mode");
+
+            // Send the "RESUME_GPS" command to all devices
+            sendCommand('Self', 'RESUME_GPS');
+            sendCommand('Falcone1', 'RESUME_GPS');
+            sendCommand('Falcone2', 'RESUME_GPS');
         }
 
-        function controlCone(coneId) {
-            console.log(`Controlling ${coneId}`);
-            // Send control commands to the leader ESP32
-            if (wsSelf && wsSelf.readyState === WebSocket.OPEN) {
-                wsSelf.send(`CONTROL:${coneId}`);
-            }
-        }
-
-        function sendCommand(cmd) {
-            if (wsSelf && wsSelf.readyState === WebSocket.OPEN) {
-                wsSelf.send(cmd);
-                console.log(`Command sent: ${cmd}`);
-            } else {
-                console.error("WebSocket is not connected.");
-            }
-        }
-
-        function sendCommand(target, command) {
-            let ws;
-            if (target === "Falcone1") {
-                ws = wsFalcone1;
-            } else if (target === "Falcone2") {
-                ws = wsFalcone2;
-            } else if (target === "Self") {
-                ws = wsSelf;
-            } else {
-                console.error("Invalid target:", target);
-                return;
-            }
-
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(command);
-                console.log(`Command sent to ${target}: ${command}`);
-            } else {
-                console.error(`WebSocket for ${target} is not open`);
-            }
-        }
-
-        // Show the alignment screen when confirmation is received
-        wsSelf.onmessage = (event) => {
-            const message = event.data;
-            if (message === "ALIGN_START") {
-                showAlignmentScreen();
-            } else if (message.startsWith("ALIGN:")) {
-                const yaw = parseFloat(message.split(":")[1]);
-                console.log("Alignment correction received:", yaw);
-                // Optionally update the UI with alignment data
-            }
-        };
-
-        document.getElementById('center-self').addEventListener('click', () => centerOnDevice('Self'));
-        document.getElementById('center-falcone1').addEventListener('click', () => centerOnDevice('Falcone1'));
-        document.getElementById('center-falcone2').addEventListener('click', () => centerOnDevice('Falcone2'));
-
-        wsSelf.onopen = () => {
-            statusElement.textContent = "Connected";
-            statusElement.className = "connected";
-        };
-
-        wsSelf.onerror = (error) => {
-            statusElement.textContent = "Connection Error";
-            statusElement.className = "disconnected";
-        };
-
-        wsSelf.onclose = () => {
-            statusElement.textContent = "Disconnected";
-            statusElement.className = "disconnected";
-        };
-
-        wsSelf.onmessage = (event) => {
-            const message = event.data;
-            if (message.startsWith("ALIGN:")) {
-                const yaw = parseFloat(message.split(":")[1]);
-                console.log("Alignment correction received:", yaw);
-                // Update UI or take action based on yaw
-            }
-        };
-
-        // Function to display a popup notification
-        function showNotification(message) {
-            // Create a notification container if it doesn't exist
-            let notificationContainer = document.getElementById('notification-container');
-            if (!notificationContainer) {
-                notificationContainer = document.createElement('div');
-                notificationContainer.id = 'notification-container';
-                notificationContainer.style.position = 'fixed';
-                notificationContainer.style.top = '50%';
-                notificationContainer.style.left = '50%';
-                notificationContainer.style.transform = 'translate(-50%, -50%)';
-                notificationContainer.style.zIndex = '1000';
-                notificationContainer.style.maxWidth = '300px';
-                notificationContainer.style.padding = '15px';
-                notificationContainer.style.backgroundColor = '#333';
-                notificationContainer.style.color = '#fff';
-                notificationContainer.style.borderRadius = '8px';
-                notificationContainer.style.boxShadow = '0 0 15px rgba(0, 0, 0, 0.5)';
-                notificationContainer.style.fontSize = '16px';
-                notificationContainer.style.textAlign = 'center';
-                notificationContainer.style.transition = 'opacity 0.5s ease';
-                document.body.appendChild(notificationContainer);
-            }
-
-            // Set the message and make the notification visible
-            notificationContainer.textContent = message;
-            notificationContainer.style.opacity = '1';
-
-            // Play a sound
-            const audio = new Audio('https://github.com/Senchou-yujin/falcone-capstone_project/raw/refs/heads/main/Falcone/Tracking-Maps/sound.wav'); // Replace with your desired sound URL
-            audio.play();
-
-            // Hide the notification after 5 seconds
-            setTimeout(() => {
-                notificationContainer.style.opacity = '0';
-            }, 5000);
-
+        function showNotification(message, playSound = false) {
             // Log the message with a timestamp
             const logList = document.getElementById('log-list');
             const logEntry = document.createElement('li');
-            const timestamp = new Date().toLocaleString();
+            const timestamp = new Date().toLocaleTimeString();
             logEntry.textContent = `[${timestamp}] ${message}`;
             logList.appendChild(logEntry);
 
             // Keep the log container scrolled to the bottom
             const logContainer = document.getElementById('log-container');
             logContainer.scrollTop = logContainer.scrollHeight;
-        }
 
-        // Track the last known statuses for comparison
-        const lastStatuses = {
-            "Self": { tilt: null, battery: null },
-            "Falcone1": { tilt: null, battery: null },
-            "Falcone2": { tilt: null, battery: null }
-        };
-
-
-        // WebSocket message handler
-        wsSelf.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-
-                // Check if 'devices' exists and is an array
-                if (Array.isArray(data.devices)) {
-                    data.devices.forEach(device => {
-                        if (device.lat !== 0 && device.lng !== 0) {
-                            const newPos = [device.lat, device.lng];
-                            markers[device.id].setLatLng(newPos);
-                            positions[device.id] = newPos;
-
-                            let popupContent = `<div style="min-width: 150px"><b>${device.id}</b><br>`;
-                            popupContent += `Lat: ${device.lat.toFixed(6)}<br>`;
-                            popupContent += `Lng: ${device.lng.toFixed(6)}<br>`;
-
-                            // Optional temperature
-                            if (device.temp !== undefined) {
-                                popupContent += `Temp: ${device.temp.toFixed(1)}°C<br>`;
-                            }
-
-                            // Status info
-                            const tiltStatus = ["Normal", "Tilted", "Flipped"][device.status] || "Unknown";
-                            const batteryStatus = ["Critical", "Low", "Good"][device.battery] || "Unknown";
-
-                            popupContent += `Tilt: <b>${tiltStatus}</b><br>`;
-                            popupContent += `Battery: <b>${batteryStatus}</b></div>`;
-
-                            markers[device.id].setPopupContent(popupContent);
-
-                            // Check for changes in tilt or battery status
-                            if (lastStatuses[device.id].tilt !== device.status) {
-                                showNotification(`${device.id} orientation changed to ${tiltStatus}`);
-                            }
-                            if (lastStatuses[device.id].battery !== device.battery) {
-                                showNotification(`${device.id} battery status changed to ${batteryStatus}`);
-                            }
-
-                            // Update the last known statuses
-                            lastStatuses[device.id].tilt = device.status;
-                            lastStatuses[device.id].battery = device.battery;
-                        }
-                    });
-                } else {
-                    console.warn("Received data does not contain a valid 'devices' array:", data);
-                }
-            } catch (e) {
-                console.error("Data error:", e);
+            // Play notification sound only if playSound is true
+            if (playSound) {
+                const audio = new Audio('https://github.com/Senchou-yujin/falcone-capstone_project/raw/refs/heads/main/Falcone/Tracking-Maps/sound.wav');
+                audio.play().catch(e => console.log("Audio play failed:", e));
             }
-        };
-
-
-        window.addEventListener('resize', () => {
-            map.invalidateSize();
-        });
+        }
     </script>
 </body>
 </html>

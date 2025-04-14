@@ -55,6 +55,8 @@ unsigned long lastAlignmentUpdate = 0;
 const unsigned long ALIGNMENT_UPDATE_INTERVAL = 100; // ms
 const unsigned long ALIGNMENT_TIMEOUT = 20000; // 20 seconds
 
+const char* deviceID = "Self"; // Change to "Falcone2" for the second follower
+
 // Store device data
 struct Device {
   String id;
@@ -64,9 +66,7 @@ struct Device {
   int battery; // 0=critical, 1=low, 2=good
   unsigned long lastUpdate;
 };
-Device devices[3] = {
-  { "Falcone1", 0, 0, 0, 0, 0, 0 },
-  { "Falcone2", 0, 0, 0, 0, 0, 0 },
+Device devices[1] = {
   { "Self", 0, 0, 0, 0, 0, 0 }
 };
 
@@ -108,119 +108,75 @@ void stopAllMotors() {
 }
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
-  if (type == WStype_TEXT) {
-    String message = (char*)payload;
-    Serial.printf("Raw Received: %s\n", message.c_str());
+    if (type == WStype_CONNECTED) {
+        IPAddress ip = webSocket.remoteIP(num);
+        Serial.printf("WebSocket client #%u connected from %s\n", num, ip.toString().c_str());
+    } else if (type == WStype_DISCONNECTED) {
+        Serial.printf("WebSocket client #%u disconnected\n", num);
+    } else if (type == WStype_TEXT) {
+        String message = (char*)payload;
+        Serial.printf("Raw Received: %s\n", message.c_str());
 
-    // Enhanced command parsing (handles both "COMMAND" and "TARGET:COMMAND")
-    String target = "Self"; // Default target if no prefix
-    String command = message;
-    
-    int colonPos = message.indexOf(':');
-    if (colonPos != -1) {
-      target = message.substring(0, colonPos);
-      command = message.substring(colonPos + 1);
-    }
+        // Parse the command
+        String command = message;
 
-    String myDeviceID = "Self"; // Set this to match your device name
-    
-    // Handle incoming data from other devices
-    if (message.startsWith("{") && message.endsWith("}")) {
-      // Parse JSON-like data (e.g., {"id":"Falcone1","lat":12.345678,"lng":98.765432,"status":0,"temp":25.5,"battery":2})
-      DynamicJsonDocument doc(256);
-      DeserializationError error = deserializeJson(doc, message);
-      if (!error) {
-        String deviceID = doc["id"];
-        for (int i = 0; i < 3; i++) {
-          if (devices[i].id == deviceID) {
-            devices[i].lat = doc["lat"];
-            devices[i].lng = doc["lng"];
-            devices[i].status = doc["status"];
-            devices[i].temperature = doc["temp"];
-            devices[i].battery = doc["battery"];
-            devices[i].lastUpdate = millis();
-            Serial.printf("Updated data for %s: lat=%.6f, lng=%.6f\n", deviceID.c_str(), devices[i].lat, devices[i].lng);
-            break;
-          }
+        // Handle movement commands
+        if (command == "MOVE_FORWARD") {
+            currentMovement = MOVE_FORWARD;
+            digitalWrite(IN1_1, HIGH); digitalWrite(IN2_1, LOW);
+            digitalWrite(IN3_1, HIGH); digitalWrite(IN4_1, LOW);
+            digitalWrite(IN1_2, HIGH); digitalWrite(IN2_2, LOW);
+            digitalWrite(IN3_2, HIGH); digitalWrite(IN4_2, LOW);
+
+            // Send JSON response
+            String jsonResponse = "{\"id\":\"Self\",\"command\":\"MOVING_FORWARD\"}";
+            webSocket.broadcastTXT(jsonResponse);
+        } else if (command == "MOVE_BACKWARD") {
+            currentMovement = MOVE_BACKWARD;
+            digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, HIGH);
+            digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, HIGH);
+            digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, HIGH);
+            digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, HIGH);
+
+            // Send JSON response
+            String jsonResponse = "{\"id\":\"Self\",\"command\":\"MOVING_BACKWARD\"}";
+            webSocket.broadcastTXT(jsonResponse);
+        } else if (command == "ROTATE_LEFT") {
+            currentMovement = ROTATE_LEFT;
+            digitalWrite(IN1_1, HIGH); digitalWrite(IN2_1, LOW);
+            digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, HIGH);
+            digitalWrite(IN1_2, HIGH); digitalWrite(IN2_2, LOW);
+            digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, HIGH);
+
+            // Send JSON response
+            String jsonResponse = "{\"id\":\"Self\",\"command\":\"ROTATING_LEFT\"}";
+            webSocket.broadcastTXT(jsonResponse);
+        } else if (command == "ROTATE_RIGHT") {
+            currentMovement = ROTATE_RIGHT;
+            digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, HIGH);
+            digitalWrite(IN3_1, HIGH); digitalWrite(IN4_1, LOW);
+            digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, HIGH);
+            digitalWrite(IN3_2, HIGH); digitalWrite(IN4_2, LOW);
+
+            // Send JSON response
+            String jsonResponse = "{\"id\":\"Self\",\"command\":\"ROTATING_RIGHT\"}";
+            webSocket.broadcastTXT(jsonResponse);
+        } else if (command == "STOP") {
+            currentMovement = HOLD_POSITION;
+            digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, LOW);
+            digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, LOW);
+            digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, LOW);
+            digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, LOW);
+
+            // Send JSON response
+            String jsonResponse = "{\"id\":\"Self\",\"command\":\"STOPPED\"}";
+            webSocket.broadcastTXT(jsonResponse);
+            delay(1000); // Optional delay to allow the message to be sent before restarting
+            ESP.restart(); // Restart the ESP32
+        } else {
+            Serial.println("Unknown command: " + command);
         }
-        updateAndBroadcastPositions(); // Broadcast updated positions
-      } else {
-        Serial.println("Failed to parse incoming JSON data");
-      }
     }
-    // Execute if command is for this device or broadcast to all
-    else if (target == myDeviceID || target == "All") {
-      Serial.printf("Executing for %s: %s\n", myDeviceID.c_str(), command.c_str());
-      
-      // Handle movement commands
-      if (command == "MOVE_FORWARD") {
-        currentMovement = MOVE_FORWARD;
-        digitalWrite(IN1_1, HIGH); digitalWrite(IN2_1, LOW);
-        digitalWrite(IN3_1, HIGH); digitalWrite(IN4_1, LOW);
-        digitalWrite(IN1_2, HIGH); digitalWrite(IN2_2, LOW);
-        digitalWrite(IN3_2, HIGH); digitalWrite(IN4_2, LOW);
-        webSocket.broadcastTXT(myDeviceID + ":MOVING_FORWARD");
-      }
-      else if (command == "MOVE_BACKWARD") {
-        currentMovement = MOVE_BACKWARD;
-        digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, HIGH);
-        digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, HIGH);
-        digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, HIGH);
-        digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, HIGH);
-        webSocket.broadcastTXT(myDeviceID + ":MOVING_BACKWARD");
-      }
-      else if (command == "ROTATE_LEFT") {
-        currentMovement = ROTATE_LEFT;
-        digitalWrite(IN1_1, HIGH); digitalWrite(IN2_1, LOW);
-        digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, HIGH);
-        digitalWrite(IN1_2, HIGH); digitalWrite(IN2_2, LOW);
-        digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, HIGH);
-        webSocket.broadcastTXT(myDeviceID + ":ROTATING_LEFT");
-      }
-      else if (command == "ROTATE_RIGHT") {
-        currentMovement = ROTATE_RIGHT;
-        digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, HIGH);
-        digitalWrite(IN3_1, HIGH); digitalWrite(IN4_1, LOW);
-        digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, HIGH);
-        digitalWrite(IN3_2, HIGH); digitalWrite(IN4_2, LOW);
-        webSocket.broadcastTXT(myDeviceID + ":ROTATING_RIGHT");
-      }
-      // Enhanced STOP command handling
-      else if (command == "STOP") {
-        currentMovement = HOLD_POSITION;
-        isAligning = false;
-        digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, LOW);
-        digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, LOW);
-        digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, LOW);
-        digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, LOW);
-        webSocket.broadcastTXT(myDeviceID + ":STOPPED");
-        Serial.println("Motors completely stopped");
-      }
-      // Alignment control
-      else if (command == "START_ALIGN") {
-        isAligning = true;
-        currentMovement = HOLD_POSITION;
-        alignmentStartTime = millis();
-        digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, LOW);
-        digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, LOW);
-        digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, LOW);
-        digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, LOW);
-        webSocket.broadcastTXT(myDeviceID + ":ALIGNING");
-        Serial.println("Alignment started - motors stopped");
-      }
-      else {
-        Serial.println("Unknown command: " + command);
-      }
-    }
-    // Forward commands to other devices
-    else if (target == "Falcone1" || target == "Falcone2") {
-      webSocket.broadcastTXT(message);
-      Serial.println("Command forwarded to " + target);
-    }
-    else {
-      Serial.println("Unknown target: " + target);
-    }
-  }
 }
 
 int readBatteryStatus() {
@@ -242,10 +198,10 @@ void updateSelfData() {
   if (abs(angleX) > 45 || abs(angleY) > 45) status = 1;
   if (abs(angleX) > 135 || abs(angleY) > 135) status = 2;
 
-  devices[2].status = status;
-  devices[2].temperature = temp.temperature;
-  devices[2].battery = readBatteryStatus();
-  devices[2].lastUpdate = millis();
+  devices[0].status = status;
+  devices[0].temperature = temp.temperature;
+  devices[0].battery = readBatteryStatus();
+  devices[0].lastUpdate = millis();
 }
 
 void setupMotors() {
@@ -328,10 +284,9 @@ void loop() {
     while (GPS.available() > 0) {
       if (gps.encode(GPS.read())) {
         if (gps.location.isValid()) {
-          devices[2].lat = gps.location.lat();
-          devices[2].lng = gps.location.lng();
+          devices[0].lat = gps.location.lat();
+          devices[0].lng = gps.location.lng();
           updateSelfData();
-          updateAndBroadcastPositions();
         }
       }
     }
@@ -343,11 +298,10 @@ void loop() {
     }
   }
 
-  // Alignment Handling
-  if (isAligning) {
-    if (millis() - alignmentStartTime > ALIGNMENT_TIMEOUT) {
-      Serial.println("Alignment timeout - restarting ESP");
-      ESP.restart();
+  if (millis() - alignmentStartTime > ALIGNMENT_TIMEOUT) {
+    Serial.println("Alignment timeout - stopping alignment");
+    isAligning = false;
+    stopAllMotors();
     }
     
     // if (millis() - lastAlignmentUpdate >= ALIGNMENT_UPDATE_INTERVAL) {
@@ -357,5 +311,4 @@ void loop() {
     //   broadcastAlignmentData(yaw);
     //   lastAlignmentUpdate = millis();
     // }
-  }
 }
