@@ -9,14 +9,16 @@
 
 const char* ssid = "Senchou";
 const char* password = "@5qifyddn";
-const char* serverIP = "192.168.254.152"; // Leader IP
+const char* serverIP = "192.168.187.152"; // Leader IP
 const int serverPort = 81; // WebSocket port
+bool pauseGPSUpdates = false; // Flag to control GPS updates
+
 
 const String deviceID = "Falcone2"; // Change for each follower
 
 #define BATTERY_PIN 34
 
-// GPS and MPU setup
+// GPS and MPU setup  
 HardwareSerial gpsSerial(1);  // Use UART1 for GPS
 TinyGPSPlus gps;
 Adafruit_MPU6050 mpu;
@@ -35,13 +37,25 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
       break;
     case WStype_TEXT:
       Serial.printf("Received: %s\n", payload);
+      String message = String((char*)payload);
+
+      // Check for "start align" command
+      if (message == "start align") {
+        pauseGPSUpdates = true;
+        Serial.println("GPS updates paused for alignment.");
+      }
+      // Check for "resume updates" command
+      else if (message == "resume updates") {
+        pauseGPSUpdates = false;
+        Serial.println("GPS updates resumed.");
+      }
       break;
   }
 }
 
 int readBatteryStatus() {
   int value = analogRead(BATTERY_PIN);
-  float voltage = value * (3.3 / 4095.0) * 2; // Use correct voltage divider ratio
+  float voltage = value * (3.3 / 4095.0) * ((20.0 + 10.0) / 10.0); // Adjust multiplier for 20k and 10k resistors
 
   if (voltage < 3.3) return 0;     // Critical
   else if (voltage < 3.6) return 1; // Low
@@ -79,6 +93,11 @@ void setup() {
 void loop() {
   webSocket.loop();
 
+  // Pause GPS updates if the flag is set
+  if (pauseGPSUpdates) {
+    return; // Skip the rest of the loop
+  }
+
   while (gpsSerial.available() > 0) {
     gps.encode(gpsSerial.read());
   }
@@ -97,16 +116,11 @@ void loop() {
 
       int battery = readBatteryStatus();
 
-      DynamicJsonDocument doc(256);
-      doc["id"] = deviceID;
-      doc["lat"] = gps.location.lat();
-      doc["lng"] = gps.location.lng();
-      doc["status"] = status;
-      doc["temp"] = temp.temperature;
-      doc["battery"] = battery;
-
-      String jsonData;
-      serializeJson(doc, jsonData);
+      String jsonData = "{\"id\":\"" + deviceID + "\",\"lat\":" + String(gps.location.lat(), 6) + 
+            ",\"lng\":" + String(gps.location.lng(), 6) + 
+            ",\"status\":" + String(status) + 
+            ",\"temp\":" + String(temp.temperature) + 
+            ",\"battery\":" + String(battery) + "}";
       webSocket.sendTXT(jsonData);
       Serial.println("Sent: " + jsonData);
     } else {

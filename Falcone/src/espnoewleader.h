@@ -7,15 +7,6 @@
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
 #include <esp_task_wdt.h>
-#include <WiFi.h>
-#include <WebServer.h>
-#include <WebSocketsServer.h>
-#include <SPIFFS.h>
-
-const char* ssid = "Senchou";
-const char* password = "@5qifyddn";
-WebServer server(80);
-WebSocketsServer webSocket(81);
 
 uint8_t falcone3Mac[] = {0x94, 0x54, 0xC5, 0xB5, 0xF9, 0x74}; // Replace with actual MAC
 uint8_t falcone2Mac[] = {0xCC, 0xDB, 0xA7, 0x94, 0x94, 0xF4}; // Replace with actual MAC
@@ -139,86 +130,7 @@ void sendToFollowers() {
       Serial.println("Error sending to Falcone3");
     }
   }
-
-  String getContentType(String filename) {
-    if (filename.endsWith(".html")) return "text/html";
-    if (filename.endsWith(".js")) return "application/javascript";
-    if (filename.endsWith(".css")) return "text/css";
-    return "text/plain";
-  }
   
-  bool handleFileRead(String path) {
-    if (path.endsWith("/")) path += "index.html";
-    String contentType = getContentType(path);
-    if (SPIFFS.exists(path)) {
-      File file = SPIFFS.open(path, "r");
-      server.streamFile(file, contentType);
-      file.close();
-      return true;
-    }
-    return false;
-  } 
-
-void broadcastDeviceData() {
-    DynamicJsonDocument doc(1024);
-    JsonArray devicesArray = doc.createNestedArray("devices");
-
-    for (int i = 0; i < 3; i++) {
-    JsonObject device = devicesArray.createNestedObject();
-    device["id"] = allDevices[i].id;
-    device["lat"] = allDevices[i].lat;
-    device["lng"] = allDevices[i].lng;
-    device["status"] = allDevices[i].status;
-    device["temp"] = allDevices[i].temp;
-    device["battery"] = allDevices[i].battery;
-    }
-
-    String jsonStr;
-    serializeJson(doc, jsonStr);
-    webSocket.broadcastTXT(jsonStr);
-    Serial.println("Broadcasted to web clients: " + jsonStr);
-}
-
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
-if (type == WStype_TEXT) {
-    String message = (char*)payload;
-    Serial.printf("WebSocket received: %s\n", message.c_str());
-
-    // Parse JSON commands from web interface
-    if (message.startsWith("{")) {
-    DynamicJsonDocument doc(200);
-    DeserializationError error = deserializeJson(doc, message);
-    if (!error) {
-        const char* target = doc["target"];
-        const char* command = doc["command"];
-        
-        if (strcmp(target, "Falcone1") == 0) {
-        // Handle commands for leader (Falcone1)
-        Serial.printf("Executing command for Falcone1: %s\n", command);
-        } 
-        else if (strcmp(target, "Falcone2") == 0 || strcmp(target, "Falcone3") == 0) {
-        // Forward command to followers
-        sendToFollowers(target, command);
-        }
-    }
-    }
-    // Handle simple text commands (alternative format)
-    else {
-    int colonPos = message.indexOf(':');
-    if (colonPos != -1) {
-        String target = message.substring(0, colonPos);
-        String command = message.substring(colonPos + 1);
-        
-        if (target == "Falcone1") {
-        // Handle leader commands
-        }
-        else if (target == "Falcone2" || target == "Falcone3") {
-        sendToFollowers(target.c_str(), command.c_str());
-        }
-    }
-    }
-}
-}
 
 int readBatteryStatus() {
   int value = analogRead(BATTERY_PIN);
@@ -232,26 +144,15 @@ int readBatteryStatus() {
 void setup() {
     Serial.begin(115200);
     WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid, password);
     analogReadResolution(12);
     GPS.begin(9600, SERIAL_8N1, 16, 17);
 
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(1000);
-        Serial.println("Connecting to WiFi...");
+    if (!mpu.begin()) {
+      Serial.println("Failed to find MPU6050 chip");
+      while (1) {
+        delay(10);
       }
-      Serial.println("Connected to WiFi");
-    
-      if (!SPIFFS.begin(true)) {
-        Serial.println("SPIFFS failed to mount");
-        return;
-      }
-    
-      server.onNotFound([]() {
-        if (!handleFileRead(server.uri())) {
-          server.send(404, "text/plain", "404: Not Found");
-        }
-      });
+    }
   
     // Init ESP-NOW
     if (esp_now_init() != ESP_OK) {
@@ -282,14 +183,13 @@ void setup() {
         }
     }
 
-  
     // Initialize Falcone1's data
     strcpy(allDevices[0].id, "Falcone1");
-    allDevices[0].lat = 14.810054; // Example hardcoded latitude
-    allDevices[0].lng = 120.885328; // Example hardcoded longitude
-    strcpy(allDevices[0].status, "Normal");
-    allDevices[0].temp = 25.0; // Example temperature
-    allDevices[0].battery = 3.7; // Example battery voltage
+    allDevices[0].lat = 0.0;
+    allDevices[0].lng = 0.0;
+    strcpy(allDevices[0].status, "Unknown");
+    allDevices[0].temp = 0.0;
+    allDevices[0].battery = 0.0;
   
     // Initialize Falcone2's data
     strcpy(allDevices[1].id, "Falcone2");
@@ -309,14 +209,9 @@ void setup() {
   
     // Serial.println("Falcone1 (Leader) ready to receive data");
     // Serial.println("Waiting for transmissions...");
-    server.begin();
-    webSocket.begin();
-    webSocket.onEvent(webSocketEvent);
   }
 
   void loop() {
-    server.handleClient();
-    webSocket.loop();
     static unsigned long lastUpdateTime = 0;
     static unsigned long lastPrintTime = 0;
   
@@ -366,11 +261,7 @@ void setup() {
         Serial.println("Failed to get MPU6050 data");
       }
     }
-    static unsigned long lastBroadcast = 0;
-    if (millis() - lastBroadcast >= 1000) { // Broadcast every second
-        lastBroadcast = millis();
-        broadcastDeviceData();
-    }
+  
     // Print all device data when new data is received
     if (newDataAvailable) {
       newDataAvailable = false;
