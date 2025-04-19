@@ -9,9 +9,8 @@
 
 const char* ssid = "Senchou";
 const char* password = "@5qifyddn";
-const char* serverIP = "192.168.187.152"; // Leader IP
+const char* serverIP = "192.168.126.152"; // Leader IP
 const int serverPort = 81; // WebSocket port
-bool pauseGPSUpdates = false; // Flag to control GPS updates
 
 // Motor Driver Pins
 #define ENA_1 5   // Motor A PWM 
@@ -37,7 +36,7 @@ enum MovementState {
 };
 MovementState currentMovement = HOLD_POSITION;
 
-const String deviceID = "Falcone3"; // Change for each follower
+const String deviceID = "Falcone2"; // Change for each follower
 
 #define BATTERY_PIN 34
 
@@ -94,7 +93,7 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
       String message = String((char*)payload);
 
       // Parse the command and target
-      String target = "Falcone3"; // Default target for this follower
+      String target = "Falcone2"; // Default target for this follower
       String command = message;
 
       int colonPos = message.indexOf(':');
@@ -103,7 +102,7 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
         command = message.substring(colonPos + 1);
       }
 
-      String myDeviceID = "Falcone3"; // Set this to match the follower's device name
+      String myDeviceID = "Falcone2"; // Set this to match the follower's device name
 
       // Execute commands if they are for this device or broadcast to all
       if (target == myDeviceID || target == "All") {
@@ -193,39 +192,39 @@ void setup() {
 void loop() {
   webSocket.loop();
 
-  // Pause GPS updates if the flag is set
-  if (pauseGPSUpdates) {
-    return; // Skip the rest of the loop
-  }
-
+  // Process GPS data if available
   while (gpsSerial.available() > 0) {
     gps.encode(gpsSerial.read());
   }
 
   if (millis() - lastSendTime >= SEND_INTERVAL) {
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+
+    float angleX = atan2(a.acceleration.y, a.acceleration.z) * 180 / PI;
+    float angleY = atan2(-a.acceleration.x, sqrt(a.acceleration.y * a.acceleration.y + a.acceleration.z * a.acceleration.z)) * 180 / PI;
+
+    int status = 0;
+    if (abs(angleX) > 45 || abs(angleY) > 45) status = 1;
+    if (abs(angleX) > 135 || abs(angleY) > 135) status = 2;
+
+    int battery = readBatteryStatus();
+
+    String jsonData = "{\"id\":\"" + deviceID + "\",";
     if (gps.location.isValid()) {
-      sensors_event_t a, g, temp;
-      mpu.getEvent(&a, &g, &temp);
-
-      float angleX = atan2(a.acceleration.y, a.acceleration.z) * 180 / PI;
-      float angleY = atan2(-a.acceleration.x, sqrt(a.acceleration.y * a.acceleration.y + a.acceleration.z * a.acceleration.z)) * 180 / PI;
-
-      int status = 0;
-      if (abs(angleX) > 45 || abs(angleY) > 45) status = 1;
-      if (abs(angleX) > 135 || abs(angleY) > 135) status = 2;
-
-      int battery = readBatteryStatus();
-
-      String jsonData = "{\"id\":\"" + deviceID + "\",\"lat\":" + String(gps.location.lat(), 6) + 
-            ",\"lng\":" + String(gps.location.lng(), 6) + 
-            ",\"status\":" + String(status) + 
-            ",\"temp\":" + String(temp.temperature) + 
-            ",\"battery\":" + String(battery) + "}";
-      webSocket.sendTXT(jsonData);
-      Serial.println("Sent: " + jsonData);
+      jsonData += "\"lat\":" + String(gps.location.lat(), 6) + 
+                  ",\"lng\":" + String(gps.location.lng(), 6) + ",";
     } else {
+      jsonData += "\"lat\":null,\"lng\":null,";
       Serial.println("GPS: No valid fix");
     }
+    jsonData += "\"status\":" + String(status) + 
+                ",\"temp\":" + String(temp.temperature) + 
+                ",\"battery\":" + String(battery) + "}";
+
+    webSocket.sendTXT(jsonData);
+    Serial.println("Sent: " + jsonData);
+
     lastSendTime = millis();
   }
 }

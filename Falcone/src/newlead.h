@@ -332,39 +332,51 @@ void loop() {
   server.handleClient();
   webSocket.loop();
 
-  // GPS Handling - Only update if not aligning
-  if (!isAligning) {
-    while (GPS.available() > 0) {
-      if (gps.encode(GPS.read())) {
-        if (gps.location.isValid()) {
-          devices[2].lat = gps.location.lat();
-          devices[2].lng = gps.location.lng();
-          updateSelfData();
-          updateAndBroadcastPositions();
-        }
+   // GPS Handling - Update if data is available, but other is gumagana pa rin.
+  while (GPS.available() > 0) {
+    if (gps.encode(GPS.read())) {
+      if (gps.location.isValid()) {
+        devices[2].lat = gps.location.lat();
+        devices[2].lng = gps.location.lng();
       }
     }
   }
-  else {
-    // Explicitly clear GPS buffer during alignment
-    while (GPS.available() > 0) {
-      GPS.read(); // Discard GPS data
-    }
-  }
-
-  // Alignment Handling
-  if (isAligning) {
-    if (millis() - alignmentStartTime > ALIGNMENT_TIMEOUT) {
-      Serial.println("Alignment timeout - restarting ESP");
-      ESP.restart();
-    }
-    
-    // if (millis() - lastAlignmentUpdate >= ALIGNMENT_UPDATE_INTERVAL) {
-    //   sensors_event_t a, g, temp;
-    //   mpu.getEvent(&a, &g, &temp);
-    //   float yaw = atan2(a.acceleration.y, a.acceleration.x) * 180 / PI;
-    //   broadcastAlignmentData(yaw);
-    //   lastAlignmentUpdate = millis();
-    // }
-  }
+  updateSelfData();
+  updateAndBroadcastPositions();
 }
+
+
+//  // GPS Handling - Update if data is available, but other is gumagana pa rin.
+// if (!isAligning) {
+//   while (GPS.available() > 0) {
+//     if (gps.encode(GPS.read())) {
+//       if (gps.location.isValid()) {
+//         devices[2].lat = gps.location.lat();
+//         devices[2].lng = gps.location.lng();
+//       }
+//     }
+//   }
+//   updateSelfData();
+//   updateAndBroadcastPositions();
+// } else {
+//   // Explicitly clear GPS buffer during alignment
+//   while (GPS.available() > 0) {
+//     GPS.read(); // Discard GPS data
+//   }
+// }
+
+  // // Alignment Handling
+  // if (isAligning) {
+  //   if (millis() - alignmentStartTime > ALIGNMENT_TIMEOUT) {
+  //     Serial.println("Alignment timeout - restarting ESP");
+  //     ESP.restart();
+  //   }
+    
+  //   if (millis() - lastAlignmentUpdate >= ALIGNMENT_UPDATE_INTERVAL) {
+  //     sensors_event_t a, g, temp;
+  //     mpu.getEvent(&a, &g, &temp);
+  //     float yaw = atan2(a.acceleration.y, a.acceleration.x) * 180 / PI;
+  //     broadcastAlignmentData(yaw);
+  //     lastAlignmentUpdate = millis();
+  //   }
+  // }

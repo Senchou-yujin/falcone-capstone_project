@@ -1,7 +1,8 @@
 #include <WiFi.h>
-#include <WebSocketsClient.h>
+#include <WebServer.h>
+#include <WebSocketsServer.h>
+#include <SPIFFS.h>
 #include <TinyGPS++.h>
-#include <HardwareSerial.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
@@ -9,9 +10,6 @@
 
 const char* ssid = "Senchou";
 const char* password = "@5qifyddn";
-const char* serverIP = "192.168.187.152"; // Leader IP
-const int serverPort = 81; // WebSocket port
-bool pauseGPSUpdates = false; // Flag to control GPS updates
 
 // Motor Driver Pins
 #define ENA_1 5   // Motor A PWM 
@@ -37,18 +35,18 @@ enum MovementState {
 };
 MovementState currentMovement = HOLD_POSITION;
 
-const String deviceID = "Falcone3"; // Change for each follower
+WebServer server(80);
+WebSocketsServer webSocket(81);
 
-#define BATTERY_PIN 34
-
-// GPS and MPU setup  
-HardwareSerial gpsSerial(1);  // Use UART1 for GPS
+// GPS setup
+HardwareSerial GPS(1); // RX=16, TX=17
 TinyGPSPlus gps;
+
+// MPU6050 setup
 Adafruit_MPU6050 mpu;
 
-WebSocketsClient webSocket;
-unsigned long lastSendTime = 0;
-const unsigned long SEND_INTERVAL = 2000;
+// Battery monitoring
+#define BATTERY_PIN 34
 
 // Alignment control
 bool isAligning = false;
@@ -56,6 +54,44 @@ unsigned long alignmentStartTime = 0;
 unsigned long lastAlignmentUpdate = 0;
 const unsigned long ALIGNMENT_UPDATE_INTERVAL = 100; // ms
 const unsigned long ALIGNMENT_TIMEOUT = 20000; // 20 seconds
+
+// Store device data
+struct Device {
+  String id;
+  float lat, lng;
+  int status; // 0=normal, 1=tilted, 2=flipped
+  float temperature;
+  int battery; // 0=critical, 1=low, 2=good
+  unsigned long lastUpdate;
+};
+Device devices[3] = {
+  { "Falcone2", 0, 0, 0, 0, 0, 0 },
+  { "Falcone3", 0, 0, 0, 0, 0, 0 },
+  { "Falcone1", 0, 0, 0, 0, 0, 0 }
+};
+
+void updateAndBroadcastPositions() {
+  String json = "{\"devices\":[";
+  for (int i = 0; i < 3; i++) {
+    json += "{";
+    json += "\"id\":\"" + devices[i].id + "\",";
+    json += "\"lat\":" + String(devices[i].lat, 6) + ",";
+    json += "\"lng\":" + String(devices[i].lng, 6) + ",";
+    json += "\"status\":" + String(devices[i].status) + ",";
+    json += "\"temp\":" + String(devices[i].temperature, 1) + ",";
+    json += "\"battery\":" + String(devices[i].battery);
+    json += "}";
+    if (i < 2) json += ",";
+  }
+  json += "]}";
+  webSocket.broadcastTXT(json);
+  Serial.println("Broadcast: " + json);
+}
+
+void broadcastAlignmentData(float yaw) {
+  String alignData = "{\"alignment\":{\"yaw\":" + String(yaw, 2) + "}}";
+  webSocket.broadcastTXT(alignData);
+}
 
 // Stop all motors
 void stopAllMotors() {
@@ -71,6 +107,152 @@ void stopAllMotors() {
   }
 }
 
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
+  if (type == WStype_TEXT) {
+    String message = (char*)payload;
+    Serial.printf("Raw Received: %s\n", message.c_str());
+
+    // Enhanced command parsing (handles both "COMMAND" and "TARGET:COMMAND")
+    String target = "Falcone1"; // Default target if no prefix
+    String command = message;
+    
+    int colonPos = message.indexOf(':');
+    if (colonPos != -1) {
+      target = message.substring(0, colonPos);
+      command = message.substring(colonPos + 1);
+    }
+
+    String myDeviceID = "Falcone1"; // Set this to match your device name
+    
+    // Handle incoming data from other devices
+    if (message.startsWith("{") && message.endsWith("}")) {
+      // Parse JSON-like data (e.g., {"id":"Falcone1","lat":12.345678,"lng":98.765432,"status":0,"temp":25.5,"battery":2})
+      DynamicJsonDocument doc(256);
+      DeserializationError error = deserializeJson(doc, message);
+      if (!error) {
+        String deviceID = doc["id"];
+        for (int i = 0; i < 3; i++) {
+          if (devices[i].id == deviceID) {
+            devices[i].lat = doc["lat"];
+            devices[i].lng = doc["lng"];
+            devices[i].status = doc["status"];
+            devices[i].temperature = doc["temp"];
+            devices[i].battery = doc["battery"];
+            devices[i].lastUpdate = millis();
+            Serial.printf("Updated data for %s: lat=%.6f, lng=%.6f\n", deviceID.c_str(), devices[i].lat, devices[i].lng);
+            break;
+          }
+        }
+        updateAndBroadcastPositions(); // Broadcast updated positions
+      } else {
+        Serial.println("Failed to parse incoming JSON data");
+      }
+    }
+    // Execute if command is for this device or broadcast to all
+    else if (target == myDeviceID || target == "All") {
+      Serial.printf("Executing for %s: %s\n", myDeviceID.c_str(), command.c_str());
+      
+      // Handle movement commands
+      if (command == "MOVE_FORWARD") {
+        currentMovement = MOVE_FORWARD;
+        digitalWrite(IN1_1, HIGH); digitalWrite(IN2_1, LOW);
+        digitalWrite(IN3_1, HIGH); digitalWrite(IN4_1, LOW);
+        digitalWrite(IN1_2, HIGH); digitalWrite(IN2_2, LOW);
+        digitalWrite(IN3_2, HIGH); digitalWrite(IN4_2, LOW);
+        //webSocket.broadcastTXT(myDeviceID + ":MOVING_FORWARD");
+      }
+      else if (command == "MOVE_BACKWARD") {
+        currentMovement = MOVE_BACKWARD;
+        digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, HIGH);
+        digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, HIGH);
+        digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, HIGH);
+        digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, HIGH);
+        //webSocket.broadcastTXT(myDeviceID + ":MOVING_BACKWARD");
+      }
+      else if (command == "ROTATE_LEFT") {
+        currentMovement = ROTATE_LEFT;
+        digitalWrite(IN1_1, HIGH); digitalWrite(IN2_1, LOW);
+        digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, HIGH);
+        digitalWrite(IN1_2, HIGH); digitalWrite(IN2_2, LOW);
+        digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, HIGH);
+        //webSocket.broadcastTXT(myDeviceID + ":ROTATING_LEFT");
+      }
+      else if (command == "ROTATE_RIGHT") {
+        currentMovement = ROTATE_RIGHT;
+        digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, HIGH);
+        digitalWrite(IN3_1, HIGH); digitalWrite(IN4_1, LOW);
+        digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, HIGH);
+        digitalWrite(IN3_2, HIGH); digitalWrite(IN4_2, LOW);
+        //webSocket.broadcastTXT(myDeviceID + ":ROTATING_RIGHT");
+      }
+      // Enhanced STOP command handling
+      else if (command == "STOP") {
+        currentMovement = HOLD_POSITION;
+        isAligning = false;
+        digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, LOW);
+        digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, LOW);
+        digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, LOW);
+        digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, LOW);
+        //webSocket.broadcastTXT(myDeviceID + ":STOPPED");
+        Serial.println("Motors completely stopped");
+      }
+      // Alignment control
+      else if (command == "START_ALIGN") {
+        isAligning = true;
+        currentMovement = HOLD_POSITION;
+        alignmentStartTime = millis();
+        digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, LOW);
+        digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, LOW);
+        digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, LOW);
+        digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, LOW);
+        //webSocket.broadcastTXT(myDeviceID + ":ALIGNING");
+        Serial.println("Alignment started - motors stopped");
+
+        // Pause GPS updates
+        while (GPS.available() > 0) {
+          GPS.read(); // Discard GPS data
+        }
+      }
+      else {
+        Serial.println("Unknown command: " + command);
+      }
+    }
+    // Forward commands to other devices
+    else if (target == "Falcone2" || target == "Falcone3") {
+      webSocket.broadcastTXT(message);
+      Serial.println("Command forwarded to " + target);
+    }
+    else {
+      Serial.println("Unknown target: " + target);
+    }
+  }
+}
+
+int readBatteryStatus() {
+  int value = analogRead(BATTERY_PIN);
+  float voltage = value * (3.3 / 4095.0) * 2;
+  if (voltage < 3.3) return 0;
+  else if (voltage < 3.6) return 1;
+  else return 2;
+}
+
+void updateSelfData() {
+  sensors_event_t a, g, temp;
+  mpu.getEvent(&a, &g, &temp);
+  
+  float angleX = atan2(a.acceleration.y, a.acceleration.z) * 180 / PI;
+  float angleY = atan2(-a.acceleration.x, sqrt(a.acceleration.y*a.acceleration.y + a.acceleration.z*a.acceleration.z)) * 180 / PI;
+  
+  int status = 0;
+  if (abs(angleX) > 45 || abs(angleY) > 45) status = 1;
+  if (abs(angleX) > 135 || abs(angleY) > 135) status = 2;
+
+  devices[2].status = status;
+  devices[2].temperature = temp.temperature;
+  devices[2].battery = readBatteryStatus();
+  devices[2].lastUpdate = millis();
+}
+
 void setupMotors() {
   pinMode(ENA_1, OUTPUT); pinMode(IN1_1, OUTPUT); pinMode(IN2_1, OUTPUT);
   pinMode(ENB_1, OUTPUT); pinMode(IN3_1, OUTPUT); pinMode(IN4_1, OUTPUT);
@@ -79,91 +261,31 @@ void setupMotors() {
   stopAllMotors();
 }
 
-void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
-  switch (type) {
-    case WStype_DISCONNECTED:
-      Serial.println("Disconnected from server");
-      break;
-
-    case WStype_CONNECTED:
-      Serial.println("Connected to server");
-      break;
-
-    case WStype_TEXT:
-      Serial.printf("Received: %s\n", payload);
-      String message = String((char*)payload);
-
-      // Parse the command and target
-      String target = "Falcone3"; // Default target for this follower
-      String command = message;
-
-      int colonPos = message.indexOf(':');
-      if (colonPos != -1) {
-        target = message.substring(0, colonPos);
-        command = message.substring(colonPos + 1);
-      }
-
-      String myDeviceID = "Falcone3"; // Set this to match the follower's device name
-
-      // Execute commands if they are for this device or broadcast to all
-      if (target == myDeviceID || target == "All") {
-        Serial.printf("Executing for %s: %s\n", myDeviceID.c_str(), command.c_str());
-
-        if (command == "MOVE_FORWARD") {
-          digitalWrite(IN1_1, HIGH); digitalWrite(IN2_1, LOW);
-          digitalWrite(IN3_1, HIGH); digitalWrite(IN4_1, LOW);
-          digitalWrite(IN1_2, HIGH); digitalWrite(IN2_2, LOW);
-          digitalWrite(IN3_2, HIGH); digitalWrite(IN4_2, LOW);
-          Serial.println("Moving Forward");
-        }
-        else if (command == "MOVE_BACKWARD") {
-          digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, HIGH);
-          digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, HIGH);
-          digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, HIGH);
-          digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, HIGH);
-          Serial.println("Moving Backward");
-        }
-        else if (command == "ROTATE_LEFT") {
-          digitalWrite(IN1_1, HIGH); digitalWrite(IN2_1, LOW);
-          digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, HIGH);
-          digitalWrite(IN1_2, HIGH); digitalWrite(IN2_2, LOW);
-          digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, HIGH);
-          Serial.println("Rotating Left");
-        }
-        else if (command == "ROTATE_RIGHT") {
-          digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, HIGH);
-          digitalWrite(IN3_1, HIGH); digitalWrite(IN4_1, LOW);
-          digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, HIGH);
-          digitalWrite(IN3_2, HIGH); digitalWrite(IN4_2, LOW);
-          Serial.println("Rotating Right");
-        }
-        else if (command == "STOP") {
-          digitalWrite(IN1_1, LOW); digitalWrite(IN2_1, LOW);
-          digitalWrite(IN3_1, LOW); digitalWrite(IN4_1, LOW);
-          digitalWrite(IN1_2, LOW); digitalWrite(IN2_2, LOW);
-          digitalWrite(IN3_2, LOW); digitalWrite(IN4_2, LOW);
-          Serial.println("Motors Stopped");
-        }
-        else {
-          Serial.println("Unknown command: " + command);
-        }
-      }
-      break;
-  }
+String getContentType(String filename) {
+  if (filename.endsWith(".html")) return "text/html";
+  else if (filename.endsWith(".css")) return "text/css";
+  else if (filename.endsWith(".js")) return "application/javascript";
+  else if (filename.endsWith(".png")) return "image/png";
+  else if (filename.endsWith(".ico")) return "image/x-icon";
+  return "text/plain";
 }
 
-int readBatteryStatus() {
-  int value = analogRead(BATTERY_PIN);
-  float voltage = value * (3.3 / 4095.0) * ((20.0 + 10.0) / 10.0); // Adjust multiplier for 20k and 10k resistors
-
-  if (voltage < 3.3) return 0;     // Critical
-  else if (voltage < 3.6) return 1; // Low
-  else return 2;                    // Good
+bool handleFileRead(String path) {
+  if (path.endsWith("/")) path += "index.html";
+  String contentType = getContentType(path);
+  
+  if (SPIFFS.exists(path)) {
+    File file = SPIFFS.open(path, "r");
+    server.streamFile(file, contentType);
+    file.close();
+    return true;
+  }
+  return false;
 }
 
 void setup() {
   Serial.begin(115200);
-  gpsSerial.begin(9600, SERIAL_8N1, 16, 17);  // RX, TX
+  GPS.begin(9600, SERIAL_8N1, 16, 17);
   analogReadResolution(12);
   setupMotors();
 
@@ -171,61 +293,90 @@ void setup() {
     Serial.println("Failed to find MPU6050 chip");
     while (1) delay(10);
   }
-
-  Serial.println("MPU6050 Found!");
+  
   mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
   mpu.setGyroRange(MPU6050_RANGE_500_DEG);
   mpu.setFilterBandwidth(MPU6050_BAND_5_HZ);
 
-  WiFi.begin(ssid, password);
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  if (!SPIFFS.begin(true)) {
+    Serial.println("SPIFFS Mount Failed");
+    return;
   }
-  Serial.println("\nWiFi connected");
 
-  webSocket.begin(serverIP, serverPort, "/");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) delay(500);
+  Serial.println("WiFi Connected. IP: " + WiFi.localIP().toString());
+
+  server.on("/", HTTP_GET, []() {
+    if(!handleFileRead("/index.html")) {
+      server.send(404, "text/plain", "File not found");
+    }
+  });
+  
+  server.onNotFound([]() {
+    if (!handleFileRead(server.uri())) {
+      server.send(404, "text/plain", "File not found");
+    }
+  });
+
+  server.on("/favicon.ico", HTTP_GET, []() {
+    server.send(404, "text/plain", "File not found");
+  });
+
   webSocket.onEvent(webSocketEvent);
-  webSocket.setReconnectInterval(5000);
+  server.begin();
+  webSocket.begin();
 }
 
 void loop() {
+  server.handleClient();
   webSocket.loop();
 
-  // Pause GPS updates if the flag is set
-  if (pauseGPSUpdates) {
-    return; // Skip the rest of the loop
-  }
-
-  while (gpsSerial.available() > 0) {
-    gps.encode(gpsSerial.read());
-  }
-
-  if (millis() - lastSendTime >= SEND_INTERVAL) {
-    if (gps.location.isValid()) {
-      sensors_event_t a, g, temp;
-      mpu.getEvent(&a, &g, &temp);
-
-      float angleX = atan2(a.acceleration.y, a.acceleration.z) * 180 / PI;
-      float angleY = atan2(-a.acceleration.x, sqrt(a.acceleration.y * a.acceleration.y + a.acceleration.z * a.acceleration.z)) * 180 / PI;
-
-      int status = 0;
-      if (abs(angleX) > 45 || abs(angleY) > 45) status = 1;
-      if (abs(angleX) > 135 || abs(angleY) > 135) status = 2;
-
-      int battery = readBatteryStatus();
-
-      String jsonData = "{\"id\":\"" + deviceID + "\",\"lat\":" + String(gps.location.lat(), 6) + 
-            ",\"lng\":" + String(gps.location.lng(), 6) + 
-            ",\"status\":" + String(status) + 
-            ",\"temp\":" + String(temp.temperature) + 
-            ",\"battery\":" + String(battery) + "}";
-      webSocket.sendTXT(jsonData);
-      Serial.println("Sent: " + jsonData);
-    } else {
-      Serial.println("GPS: No valid fix");
+   // GPS Handling - Update if data is available, but other is gumagana pa rin.
+  while (GPS.available() > 0) {
+    if (gps.encode(GPS.read())) {
+      if (gps.location.isValid()) {
+        devices[2].lat = gps.location.lat();
+        devices[2].lng = gps.location.lng();
+      }
     }
-    lastSendTime = millis();
   }
+  updateSelfData();
+  updateAndBroadcastPositions();
 }
+
+
+//  // GPS Handling - Update if data is available, but other is gumagana pa rin.
+// if (!isAligning) {
+//   while (GPS.available() > 0) {
+//     if (gps.encode(GPS.read())) {
+//       if (gps.location.isValid()) {
+//         devices[2].lat = gps.location.lat();
+//         devices[2].lng = gps.location.lng();
+//       }
+//     }
+//   }
+//   updateSelfData();
+//   updateAndBroadcastPositions();
+// } else {
+//   // Explicitly clear GPS buffer during alignment
+//   while (GPS.available() > 0) {
+//     GPS.read(); // Discard GPS data
+//   }
+// }
+
+  // // Alignment Handling
+  // if (isAligning) {
+  //   if (millis() - alignmentStartTime > ALIGNMENT_TIMEOUT) {
+  //     Serial.println("Alignment timeout - restarting ESP");
+  //     ESP.restart();
+  //   }
+    
+  //   if (millis() - lastAlignmentUpdate >= ALIGNMENT_UPDATE_INTERVAL) {
+  //     sensors_event_t a, g, temp;
+  //     mpu.getEvent(&a, &g, &temp);
+  //     float yaw = atan2(a.acceleration.y, a.acceleration.x) * 180 / PI;
+  //     broadcastAlignmentData(yaw);
+  //     lastAlignmentUpdate = millis();
+  //   }
+  // }
